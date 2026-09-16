@@ -1061,15 +1061,26 @@
                 const data = await res.json();
                 const calcTime = Math.round(performance.now() - startTime);
 
+                // DEBUG: show raw response
+                console.log('[DEBUG] API response:', JSON.stringify(data));
+
                 if (data.placements && data.placements.length > 0) {
-                    applyPlacementsToFabric(data.placements[0], objs);
-                    document.getElementById('calcTimeVal').innerText = `${calcTime} ms`;
+                    const sheet0 = data.placements[0];
+                    console.log('[DEBUG] sheet0:', JSON.stringify(sheet0), 'objs count:', objs.length);
+                    if (!sheet0 || sheet0.length === 0) {
+                        alert('Server returned empty placement array. Response: ' + JSON.stringify(data));
+                    } else {
+                        applyPlacementsToFabric(sheet0, objs);
+                        document.getElementById('calcTimeVal').innerText = `${calcTime} ms`;
+                    }
+                } else if (data.error) {
+                    alert('Server error: ' + data.error);
                 } else {
-                    alert('No valid placement found. Check if parts fit inside the sheet.');
+                    alert('No valid placement found.\nRaw response: ' + JSON.stringify(data));
                 }
             } catch (err) {
                 console.error('Fast Nest Error:', err);
-                alert('Backend Fast Nesting error: ' + err.message);
+                alert('Nesting fetch error: ' + err.message + '\n(Is the server running?)');
             } finally {
                 // Hide loading overlay & re-enable button
                 runBtn.disabled = false;
