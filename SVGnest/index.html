@@ -296,23 +296,24 @@
 
         /* NESTING SPINNER / RUNNING FEEDBACK OVERLAY */
         .nesting-loading-overlay {
-            position: absolute;
-            top: 20px;
-            right: 300px;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             background: rgba(0, 229, 255, 0.15);
             backdrop-filter: blur(10px);
             border: 1px solid var(--accent-cyan);
             color: var(--accent-cyan);
-            padding: 8px 18px;
-            border-radius: 20px;
-            font-size: 0.85rem;
+            padding: 15px 25px;
+            border-radius: 30px;
+            font-size: 1.1rem;
             font-family: var(--font-mono);
-            font-weight: 600;
+            font-weight: 700;
             display: none;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
             box-shadow: 0 0 20px rgba(0, 229, 255, 0.4);
-            z-index: 100;
+            z-index: 9999;
             animation: pulseGlow 1.5s infinite alternate;
         }
 
@@ -984,9 +985,12 @@
             const runBtn = document.getElementById('runNestBtn');
             const loadingOverlay = document.getElementById('nestingLoadingOverlay');
             const progressText = document.getElementById('nestingProgressText');
+            
+            const originalBtnText = runBtn.innerHTML;
 
             runBtn.disabled = true;
             runBtn.style.opacity = '0.5';
+            runBtn.innerHTML = '⏳ NESTING...';
             loadingOverlay.style.display = 'flex';
             progressText.innerText = '⚡ NESTING IN PROGRESS... (Calculating NFP & GA)';
 
@@ -1070,6 +1074,7 @@
                 // Hide loading overlay & re-enable button
                 runBtn.disabled = false;
                 runBtn.style.opacity = '1';
+                runBtn.innerHTML = '⚡ RUN FAST NEST';
                 loadingOverlay.style.display = 'none';
             }
         }
