@@ -3,13 +3,14 @@ const path = require('path');
 
 function walk(dir) {
   let results = [];
+  if (!fs.existsSync(dir)) return results;
   const list = fs.readdirSync(dir);
   list.forEach(file => {
     file = path.join(dir, file);
     const stat = fs.statSync(file);
     if (stat && stat.isDirectory()) {
       results = results.concat(walk(file));
-    } else if (file.endsWith('.js')) {
+    } else if (file.endsWith('.js') || file.endsWith('.mjs')) {
       results.push(file);
     }
   });
@@ -23,11 +24,15 @@ if (fs.existsSync(targetDir)) {
   let patchedCount = 0;
   jsFiles.forEach(filePath => {
     let content = fs.readFileSync(filePath, 'utf8');
-    const newContent = content.replace(/from\s+["'](\.[^"']+)["']/g, (match, p1) => {
-      if (!p1.endsWith('.js')) {
-        return 'from "' + p1 + '.js"';
+    
+    const newContent = content.replace(/from\s+["'](\.[^"']+)["']/g, (match, specifier) => {
+      if (specifier.endsWith('.js')) return match;
+      
+      const absoluteTarget = path.resolve(path.dirname(filePath), specifier);
+      if (fs.existsSync(absoluteTarget) && fs.statSync(absoluteTarget).isDirectory()) {
+        return 'from "' + specifier + '/index.js"';
       }
-      return match;
+      return 'from "' + specifier + '.js"';
     });
 
     if (content !== newContent) {
