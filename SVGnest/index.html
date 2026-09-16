@@ -1094,15 +1094,16 @@
         function applyPlacementsToFabric(placement, objs) {
             const placedList = Array.isArray(placement) ? placement : (placement.sheet || placement.placements || []);
 
+            let placedCount = 0;
             placedList.forEach((p, idx) => {
-                const targetObj = objs[p.source !== undefined ? p.source : (p.id !== undefined ? p.id : idx)];
+                const targetIdx = p.source !== undefined ? p.source : (p.id !== undefined ? p.id : idx);
+                const targetObj = objs[targetIdx];
                 if (!targetObj) return;
 
                 const posX = (p.translate && p.translate.x !== undefined) ? p.translate.x : (p.x || 0);
                 const posY = (p.translate && p.translate.y !== undefined) ? p.translate.y : (p.y || 0);
                 const rotDeg = (p.rotate !== undefined) ? p.rotate : (p.rotation || 0);
 
-                // Set Fabric origin to top-left (left, top) to match NFP coordinate space 1:1
                 targetObj.set({
                     originX: 'left',
                     originY: 'top',
@@ -1110,10 +1111,32 @@
                     top: originY + posY,
                     angle: rotDeg
                 }).setCoords();
+                placedCount++;
             });
 
-            fabricCanvas.requestRenderAll();
+            // Force a hard re-render (not just requestRenderAll which can be deferred)
+            fabricCanvas.discardActiveObject();
+            fabricCanvas.renderAll();
             calculateUtilization();
+
+            // Show a green success toast
+            showSuccessToast(`✅ NEST COMPLETE! ${placedCount} parts placed on sheet.`);
+
+            // Scroll the canvas into view on mobile
+            document.querySelector('.canvas-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function showSuccessToast(msg) {
+            let toast = document.getElementById('successToast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'successToast';
+                toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#76ff03;color:#0b0c10;padding:12px 24px;border-radius:24px;font-weight:700;font-size:1rem;z-index:99999;box-shadow:0 4px 20px rgba(118,255,3,0.5);pointer-events:none;text-align:center;max-width:90vw;';
+                document.body.appendChild(toast);
+            }
+            toast.textContent = msg;
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 4000);
         }
 
         function exportSVG() {
