@@ -1,10 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-
-const { AnyNest: anyNest } = require('../vendor/any-nest/dist/any-nest.js');
 const deepnest = require('@deepnest/calculate-nfp');
-const { FloatPolygon } = require('../vendor/any-nest/dist/geometry-util/float-polygon.js');
 
 const app = express();
 const upload = multer();
@@ -24,7 +21,11 @@ app.post('/api/nest', async (req, res) => {
       return res.status(400).json({ error: 'Missing tree or binPolygon' });
     }
 
-    const nester = new anyNest();
+    // Dynamic import() works from CJS to load ES Modules
+    const { AnyNest } = await import('../vendor/any-nest/dist/any-nest.js');
+    const { FloatPolygon } = await import('../vendor/any-nest/dist/geometry-util/float-polygon.js');
+
+    const nester = new AnyNest();
     
     // High-performance NFP Cache Map
     const nfpCache = new Map();
@@ -71,13 +72,15 @@ app.post('/api/nest', async (req, res) => {
     nester.config(config || {});
     
     // Convert arrays of points back into FloatPolygons expected by any-nest
-    let binPoly = FloatPolygon.fromPoints(binPolygon, binPolygon.id || 0);
+    const { FloatPolygon: FP } = await import('../vendor/any-nest/dist/geometry-util/float-polygon.js');
+    
+    let binPoly = FP.fromPoints(binPolygon, binPolygon.id || 0);
     binPoly._id = binPolygon.id || 0;
     binPoly._rotation = binPolygon.rotation || 0;
     binPoly._source = binPolygon.source !== undefined ? binPolygon.source : 0;
 
     let treePolys = tree.map((part, index) => {
-      let fp = FloatPolygon.fromPoints(part, part.id || index);
+      let fp = FP.fromPoints(part, part.id || index);
       fp._id = part.id || index;
       fp._rotation = part.rotation || 0;
       fp._source = part.source !== undefined ? part.source : index;
@@ -88,7 +91,7 @@ app.post('/api/nest', async (req, res) => {
     nester.setParts(treePolys);
 
     let bestPlacement = null;
-    let maxGenerations = config.generations || 1; // 1 generation for immediate fast response
+    let maxGenerations = config.generations || 1;
     let generations = 0;
 
     await new Promise((resolve, reject) => {
