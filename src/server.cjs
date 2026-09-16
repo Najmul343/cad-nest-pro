@@ -69,12 +69,13 @@ app.post('/api/nest', async (req, res) => {
           return null;
         }
         
-        const pointArrays = result.map(poly => {
-          return poly.map(pt => ({ x: pt.x, y: pt.y }));
+        const floatPolys = result.map(poly => {
+          const p = poly.map(pt => ({ x: pt.x, y: pt.y }));
+          return FP.fromPoints(p);
         });
 
-        nfpCache.set(key, pointArrays);
-        return pointArrays;
+        nfpCache.set(key, floatPolys);
+        return floatPolys;
       } catch (err) {
         console.error('C++ NFP error:', err);
         nfpCache.set(key, null);

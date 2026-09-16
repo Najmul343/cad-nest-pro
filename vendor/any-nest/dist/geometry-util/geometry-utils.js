@@ -6,14 +6,15 @@ import FloatRect from "./float-rect.js";
 // private shared variables/methods
 // a negative area indicates counter-clockwise winding direction
 export function polygonArea(polygon) {
-    var pointCount = polygon.length;
+    var pts = (polygon && polygon.points) ? polygon.points : polygon;
+    var pointCount = pts ? pts.length : 0;
     var result = 0;
     var i = 0;
     var currentPoint;
     var prevPoint;
     for (i = 0; i < pointCount; ++i) {
-        prevPoint = polygon.at((i - 1 + pointCount) % pointCount);
-        currentPoint = polygon.at(i);
+        prevPoint = pts.at ? pts.at((i - 1 + pointCount) % pointCount) : pts[(i - 1 + pointCount) % pointCount];
+        currentPoint = pts.at ? pts.at(i) : pts[i];
         result += (prevPoint.x + currentPoint.x) * (prevPoint.y - currentPoint.y);
     }
     return 0.5 * result;
