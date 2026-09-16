@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: cad-nest-pro
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node src/server.mjs
+    envVars:
+      - key: NODE_ENV
+        value: production
