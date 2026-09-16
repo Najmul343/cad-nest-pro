@@ -32,8 +32,16 @@ app.post('/api/nest', async (req, res) => {
 
     // Inject the deepnest C++ native NFP calculator with NFP Caching!
     config.customNfpFn = (a, b, inside) => {
-      const hashPoly = (p) => `${p.points ? p.points.length : 0}_${Math.round(p.area || 0)}`;
-      const key = `${hashPoly(a)}__${hashPoly(b)}__${inside}__${a._rotation || 0}__${b._rotation || 0}`;
+      const hashPoly = (p) => {
+        let coordHash = 0;
+        if (p.points) {
+          p.points.forEach((pt, i) => {
+            coordHash += (pt.x + pt.y) * (i + 1);
+          });
+        }
+        return `${p.points ? p.points.length : 0}_${Math.round(p.area || 0)}_${Math.round(coordHash)}`;
+      };
+      const key = `${hashPoly(a)}__${hashPoly(b)}__${inside}`;
 
       if (nfpCache.has(key)) {
         return nfpCache.get(key);
