@@ -996,15 +996,17 @@
 
             const startTime = performance.now();
 
-            const binPoly = [
-                { x: 0, y: 0 },
-                { x: binDimensions.width, y: 0 },
-                { x: binDimensions.width, y: binDimensions.height },
-                { x: 0, y: binDimensions.height }
-            ];
-            binPoly.id = 'BIN_SHEET';
+            const binPoly = {
+                id: 'BIN_SHEET',
+                points: [
+                    { x: 0, y: 0 },
+                    { x: binDimensions.width, y: 0 },
+                    { x: binDimensions.width, y: binDimensions.height },
+                    { x: 0, y: binDimensions.height }
+                ]
+            };
 
-            // Extract polygons from Fabric objects
+            // Extract polygons from Fabric objects as clean JSON serializable objects
             const treePolys = objs.map((o, idx) => {
                 let pts = [];
                 if (o.type === 'rect') {
@@ -1033,10 +1035,12 @@
                     pts = [{x:0, y:0}, {x:w, y:0}, {x:w, y:h}, {x:0, y:h}];
                 }
 
-                pts.id = idx;
-                pts.source = idx;
-                pts.rotation = o.angle || 0;
-                return pts;
+                return {
+                    id: idx,
+                    source: idx,
+                    rotation: o.angle || 0,
+                    points: pts
+                };
             });
 
             const config = {

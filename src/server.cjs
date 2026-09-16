@@ -49,31 +49,37 @@ app.post('/api/nest', async (req, res) => {
 
       const formatPoly = (poly) => {
         let arr = poly.points.map(p => ({ x: p.x, y: p.y }));
-        if (poly.holes && poly.holes.length > 0) {
-          arr.children = poly.holes.map(hole => hole.points.map(p => ({ x: p.x, y: p.y })));
+        if (poly.children && poly.children.length > 0) {
+          arr.children = poly.children.map(hole => hole.points.map(p => ({ x: p.x, y: p.y })));
         }
         return arr;
       };
       
-      const group = {
-        A: formatPoly(a),
-        B: formatPoly(b),
-        inside: inside
-      };
-      
-      const result = deepnest.calculateNFP(group);
-      
-      if (!result || result.length === 0) {
+      try {
+        const group = {
+          A: formatPoly(a),
+          B: formatPoly(b),
+          inside: inside
+        };
+        
+        const result = deepnest.calculateNFP(group);
+        
+        if (!result || result.length === 0) {
+          nfpCache.set(key, null);
+          return null;
+        }
+        
+        const pointArrays = result.map(poly => {
+          return poly.map(pt => ({ x: pt.x, y: pt.y }));
+        });
+
+        nfpCache.set(key, pointArrays);
+        return pointArrays;
+      } catch (err) {
+        console.error('C++ NFP error:', err);
         nfpCache.set(key, null);
         return null;
       }
-      
-      const pointArrays = result.map(poly => {
-        return poly.map(pt => ({ x: pt.x, y: pt.y }));
-      });
-
-      nfpCache.set(key, pointArrays);
-      return pointArrays;
     };
 
     nester.config(config || {});
@@ -81,14 +87,17 @@ app.post('/api/nest', async (req, res) => {
     // Convert arrays of points back into FloatPolygons expected by any-nest
     const { FloatPolygon: FP } = await import('../vendor/any-nest/dist/geometry-util/float-polygon.js');
     
-    let binPoly = FP.fromPoints(binPolygon, binPolygon.id || 0);
+    const binPoints = binPolygon.points || binPolygon;
+    let binPoly = FP.fromPoints(binPoints, binPolygon.id || 0);
     binPoly._id = binPolygon.id || 0;
     binPoly._rotation = binPolygon.rotation || 0;
     binPoly._source = binPolygon.source !== undefined ? binPolygon.source : 0;
 
     let treePolys = tree.map((part, index) => {
-      let fp = FP.fromPoints(part, part.id || index);
-      fp._id = part.id || index;
+      const points = part.points || part;
+      const partId = part.id !== undefined ? part.id : index;
+      let fp = FP.fromPoints(points, partId);
+      fp._id = partId;
       fp._rotation = part.rotation || 0;
       fp._source = part.source !== undefined ? part.source : index;
       return fp;
@@ -102,19 +111,26 @@ app.post('/api/nest', async (req, res) => {
     let generations = 0;
 
     await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        nester.stop();
+        resolve();
+      }, 15000);
+
       try {
         nester.start(
           (progress) => { /* ignore progress */ },
           (placements, fitness) => {
-            bestPlacement = placements;
+            if (placements) bestPlacement = placements;
             generations++;
             if (generations >= maxGenerations) {
+              clearTimeout(timeout);
               nester.stop();
               resolve();
             }
           }
         );
       } catch (err) {
+        clearTimeout(timeout);
         reject(err);
       }
     });
