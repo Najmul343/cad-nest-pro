@@ -5,6 +5,7 @@
   "main": "src/server.cjs",
   "scripts": {
     "start": "node src/server.cjs",
+    "postinstall": "node scripts/patch-any-nest.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
