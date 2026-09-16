@@ -68,13 +68,12 @@ app.post('/api/nest', async (req, res) => {
         return null;
       }
       
-      const floatPolys = result.map(poly => {
-        const p = poly.map(pt => ({ x: pt.x, y: pt.y }));
-        return FloatPolygon.fromPoints(p);
+      const pointArrays = result.map(poly => {
+        return poly.map(pt => ({ x: pt.x, y: pt.y }));
       });
 
-      nfpCache.set(key, floatPolys);
-      return floatPolys;
+      nfpCache.set(key, pointArrays);
+      return pointArrays;
     };
 
     nester.config(config || {});
