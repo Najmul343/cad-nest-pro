@@ -2,9 +2,9 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 
-const { AnyNest: anyNest } = require('@makeorbreakshop/any-nest/dist/any-nest.js');
+const { AnyNest: anyNest } = require('../vendor/any-nest/dist/any-nest.js');
 const deepnest = require('@deepnest/calculate-nfp');
-const { FloatPolygon } = require('@makeorbreakshop/any-nest/dist/geometry-util/float-polygon.js');
+const { FloatPolygon } = require('../vendor/any-nest/dist/geometry-util/float-polygon.js');
 
 const app = express();
 const upload = multer();

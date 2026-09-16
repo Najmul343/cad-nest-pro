@@ -5,7 +5,6 @@
   "main": "src/server.cjs",
   "scripts": {
     "start": "node src/server.cjs",
-    "postinstall": "node scripts/patch-any-nest.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -13,7 +12,6 @@
   "license": "ISC",
   "dependencies": {
     "@deepnest/calculate-nfp": "^202503.13.155300",
-    "@makeorbreakshop/any-nest": "^1.1.0",
     "clipper-lib": "^6.4.2",
     "express": "^5.2.1",
     "multer": "^2.4.0",

@@ -1,0 +1,34 @@
+import { Point } from "../interfaces";
+export default class FloatPoint implements Point {
+    private _data;
+    constructor(x?: number, y?: number);
+    scale(multiplier: number): FloatPoint;
+    add(value: Point): FloatPoint;
+    sub(value: Point): FloatPoint;
+    set(value: Point): FloatPoint;
+    update(x: number, y: number): FloatPoint;
+    max(value: Point): FloatPoint;
+    min(value: Point): FloatPoint;
+    dot(value: Point): number;
+    cross(value: Point, sign?: number): number;
+    abs(): FloatPoint;
+    rotate(angle: number): FloatPoint;
+    clone(): FloatPoint;
+    almostEqual(point: Point, tolerance?: number): boolean;
+    onSegment(a: Point, b: Point): boolean;
+    get x(): number;
+    set x(value: number);
+    get y(): number;
+    set y(value: number);
+    get squareLength(): number;
+    get length(): number;
+    static from(point: Point): FloatPoint;
+    static abs(point: Point): FloatPoint;
+    static square(point: Point): FloatPoint;
+    static add(p1: Point, p2: Point): FloatPoint;
+    static sub(p1: Point, p2: Point): FloatPoint;
+    static almostEqual(point1: Point, point2: Point, tolerance?: number): boolean;
+    static normal(value: Point): FloatPoint;
+    static reverse(value: Point): FloatPoint;
+    static normalizeVector(v: Point): FloatPoint;
+}
