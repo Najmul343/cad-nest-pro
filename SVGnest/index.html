@@ -396,40 +396,44 @@
             width: 0%;
             transition: width 0.3s ease;
         }
-        @media (max-width: 900px) {
+        @media (max-width: 1200px) {
             body {
-                height: auto;
-                overflow: auto;
+                height: auto !important;
+                overflow-x: hidden !important;
+                overflow-y: auto !important;
+                max-width: 100vw;
             }
             .workspace {
-                flex-direction: column;
-                height: auto;
-                overflow: visible;
+                flex-direction: column !important;
+                height: auto !important;
+                overflow: hidden !important;
+                max-width: 100vw;
             }
             .sidebar-left, .sidebar-right {
-                width: 100%;
-                border-right: none;
-                border-left: none;
+                width: 100% !important;
+                max-width: 100vw;
+                border-right: none !important;
+                border-left: none !important;
                 border-bottom: 1px solid var(--panel-border);
-                overflow: visible;
             }
             .canvas-container {
                 min-height: 500px;
-                width: 100%;
-                overflow: auto; /* Enable panning/scrolling for the CAD canvas on mobile */
-                justify-content: flex-start;
-                align-items: flex-start;
+                width: 100% !important;
+                max-width: 100vw !important;
+                overflow-x: auto !important;
+                overflow-y: auto !important;
             }
             .header {
-                height: auto;
-                flex-wrap: wrap;
-                padding: 10px;
+                height: auto !important;
+                flex-wrap: wrap !important;
+                padding: 10px !important;
+                max-width: 100vw;
             }
             .header-actions {
-                flex-wrap: wrap;
-                margin-top: 10px;
-                justify-content: center;
-                width: 100%;
+                flex-wrap: wrap !important;
+                margin-top: 10px !important;
+                justify-content: center !important;
+                width: 100% !important;
             }
             .canvas-overlay {
                 flex-direction: column;
