@@ -396,6 +396,49 @@
             width: 0%;
             transition: width 0.3s ease;
         }
+        @media (max-width: 900px) {
+            body {
+                height: auto;
+                overflow: auto;
+            }
+            .workspace {
+                flex-direction: column;
+                height: auto;
+                overflow: visible;
+            }
+            .sidebar-left, .sidebar-right {
+                width: 100%;
+                border-right: none;
+                border-left: none;
+                border-bottom: 1px solid var(--panel-border);
+                overflow: visible;
+            }
+            .canvas-container {
+                min-height: 500px;
+                width: 100%;
+                overflow: auto; /* Enable panning/scrolling for the CAD canvas on mobile */
+                justify-content: flex-start;
+                align-items: flex-start;
+            }
+            .header {
+                height: auto;
+                flex-wrap: wrap;
+                padding: 10px;
+            }
+            .header-actions {
+                flex-wrap: wrap;
+                margin-top: 10px;
+                justify-content: center;
+                width: 100%;
+            }
+            .canvas-overlay {
+                flex-direction: column;
+                gap: 5px;
+                font-size: 0.7rem;
+                top: 5px;
+                left: 5px;
+            }
+        }
     </style>
 </head>
 <body>
