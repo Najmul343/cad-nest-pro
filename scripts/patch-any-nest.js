@@ -26,13 +26,14 @@ if (fs.existsSync(targetDir)) {
     let content = fs.readFileSync(filePath, 'utf8');
     
     const newContent = content.replace(/from\s+["'](\.[^"']+)["']/g, (match, specifier) => {
-      if (specifier.endsWith('.js')) return match;
+      // Clean up previous bad patches if any
+      let baseSpecifier = specifier.endsWith('.js') ? specifier.slice(0, -3) : specifier;
       
-      const absoluteTarget = path.resolve(path.dirname(filePath), specifier);
+      const absoluteTarget = path.resolve(path.dirname(filePath), baseSpecifier);
       if (fs.existsSync(absoluteTarget) && fs.statSync(absoluteTarget).isDirectory()) {
-        return 'from "' + specifier + '/index.js"';
+        return 'from "' + baseSpecifier + '/index.js"';
       }
-      return 'from "' + specifier + '.js"';
+      return 'from "' + baseSpecifier + '.js"';
     });
 
     if (content !== newContent) {
