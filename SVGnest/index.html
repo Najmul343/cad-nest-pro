@@ -1006,39 +1006,61 @@
                 ]
             };
 
-            // Extract polygons from Fabric objects as clean JSON serializable objects
+            // Extract polygons from Fabric objects as clean JSON serializable objects.
+            // For fabric.Polygon, o.points are in the polygon's LOCAL coordinate space
+            // (Fabric internally normalizes them so the bounding-box center = (0,0)).
+            // We must transform them to CANVAS space first, then normalize to (0,0) origin
+            // so the nesting engine works in a consistent coordinate system.
+            // We also store the per-object Fabric bbox offset so we can correctly reposition
+            // after nesting.
+            const objNestMeta = []; // stores {bboxLeft, bboxTop} per object for repositioning
+
             const treePolys = objs.map((o, idx) => {
                 let pts = [];
+
                 if (o.type === 'rect') {
                     const w = o.getScaledWidth(), h = o.getScaledHeight();
                     pts = [{x:0, y:0}, {x:w, y:0}, {x:w, y:h}, {x:0, y:h}];
+                    // Store bbox top-left in canvas space (relative to bin origin)
+                    const br = o.getBoundingRect(true);
+                    objNestMeta[idx] = { bboxLeft: br.left - originX, bboxTop: br.top - originY };
                 } else if (o.type === 'circle') {
                     const r = o.getScaledWidth() / 2;
                     for (let i = 0; i < 20; i++) {
                         const a = (i/20) * Math.PI*2;
                         pts.push({ x: r + r*Math.cos(a), y: r + r*Math.sin(a) });
                     }
+                    const br = o.getBoundingRect(true);
+                    objNestMeta[idx] = { bboxLeft: br.left - originX, bboxTop: br.top - originY };
                 } else if (o.points && o.points.length > 0) {
+                    // Transform fabric polygon internal points to canvas space, then normalize
+                    const matrix = o.calcTransformMatrix();
+                    const canvasPts = o.points.map(p => {
+                        const tp = fabric.util.transformPoint({ x: p.x, y: p.y }, matrix);
+                        return { x: tp.x, y: tp.y };
+                    });
                     let minX = Infinity, minY = Infinity;
-                    o.points.forEach(p => {
+                    canvasPts.forEach(p => {
                         if (p.x < minX) minX = p.x;
                         if (p.y < minY) minY = p.y;
                     });
-                    const scaleX = o.scaleX || 1;
-                    const scaleY = o.scaleY || 1;
-                    pts = o.points.map(p => ({
-                        x: Math.round((p.x - minX) * scaleX * 100) / 100,
-                        y: Math.round((p.y - minY) * scaleY * 100) / 100
+                    pts = canvasPts.map(p => ({
+                        x: Math.round((p.x - minX) * 100) / 100,
+                        y: Math.round((p.y - minY) * 100) / 100
                     }));
+                    // minX/minY is the canvas-space top-left of this polygon's bbox
+                    objNestMeta[idx] = { bboxLeft: minX - originX, bboxTop: minY - originY };
                 } else {
                     const w = o.getScaledWidth(), h = o.getScaledHeight();
                     pts = [{x:0, y:0}, {x:w, y:0}, {x:w, y:h}, {x:0, y:h}];
+                    const br = o.getBoundingRect(true);
+                    objNestMeta[idx] = { bboxLeft: br.left - originX, bboxTop: br.top - originY };
                 }
 
                 return {
                     id: idx,
                     source: idx,
-                    rotation: o.angle || 0,
+                    rotation: 0, // Reset rotation — we send normalized shapes at 0°
                     points: pts
                 };
             });
@@ -1065,7 +1087,7 @@
                 const calcTime = Math.round(performance.now() - startTime);
 
                 if (data.placements && data.placements.length > 0 && data.placements[0].length > 0) {
-                    applyPlacementsToFabric(data.placements[0], objs);
+                    applyPlacementsToFabric(data.placements[0], objs, objNestMeta);
                     document.getElementById('calcTimeVal').innerText = `${calcTime} ms`;
                 } else if (data.error) {
                     alert('Nesting Engine Error: ' + data.error);
@@ -1085,8 +1107,15 @@
         }
 
         // UPDATE FABRIC.JS CAD OBJECTS WITH 100% PRECISE ORIGIN MAPPING (ZERO OVERLAP)
-        function applyPlacementsToFabric(placement, objs) {
+        // posX/posY from server = translation in nesting-space (bin origin = 0,0)
+        // Canvas bin top-left = (originX, originY)
+        // For each shape, nesting returned where its bbox top-left should be placed in bin-space.
+        // So target canvas position = (originX + posX, originY + posY) for bbox top-left.
+        // For fabric.Polygon, we use setPositionByOrigin('left','top') which correctly
+        // accounts for Fabric's internal center-relative point storage.
+        function applyPlacementsToFabric(placement, objs, nestMeta) {
             const placedList = Array.isArray(placement) ? placement : (placement.sheet || placement.placements || []);
+            const meta = nestMeta || [];
 
             let placedCount = 0;
             placedList.forEach((p, idx) => {
@@ -1098,13 +1127,29 @@
                 const posY = (p.translate && p.translate.y !== undefined) ? p.translate.y : (p.y || 0);
                 const rotDeg = (p.rotate !== undefined) ? p.rotate : (p.rotation || 0);
 
-                targetObj.set({
-                    originX: 'left',
-                    originY: 'top',
-                    left: originX + posX,
-                    top: originY + posY,
-                    angle: rotDeg
-                }).setCoords();
+                // Target canvas position: bin origin + nesting offset
+                const targetLeft = originX + posX;
+                const targetTop  = originY + posY;
+
+                if (targetObj.type === 'polygon') {
+                    // For fabric.Polygon, setPositionByOrigin correctly positions
+                    // the bounding-box corner, accounting for Fabric's internal centering.
+                    targetObj.set({ angle: rotDeg });
+                    targetObj.setPositionByOrigin(
+                        new fabric.Point(targetLeft, targetTop),
+                        'left', 'top'
+                    );
+                    targetObj.setCoords();
+                } else {
+                    // Rect, Circle, etc: left/top with originX:'left',originY:'top' = bbox top-left
+                    targetObj.set({
+                        originX: 'left',
+                        originY: 'top',
+                        left: targetLeft,
+                        top: targetTop,
+                        angle: rotDeg
+                    }).setCoords();
+                }
                 placedCount++;
             });
 
