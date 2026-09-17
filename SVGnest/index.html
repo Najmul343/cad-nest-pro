@@ -594,23 +594,50 @@
                 <button class="btn" style="padding:3px 8px; font-size:0.75rem" onclick="changeSheet(1)">Next ▶</button>
             </div>
 
-            <div class="stat-card">
-                <div style="font-size:0.75rem; color:var(--text-muted)">SHEET UTILIZATION</div>
-                <div id="utilizationVal" class="stat-value">0.0%</div>
-                <div class="progress-bar"><div id="utilizationProgress" class="progress-fill"></div></div>
+            <!-- LIVE SVGNEST-STYLE STATS PANEL -->
+            <div class="stat-card" style="padding:10px 12px">
+                <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:6px; letter-spacing:0.06em">PLACEMENT PROGRESS</div>
+                <div style="display:flex; align-items:center; gap:8px">
+                    <div id="nestProgressVal" style="font-size:1.6rem; font-family:var(--font-mono); color:var(--accent-cyan); font-weight:700; min-width:52px">0%</div>
+                    <div style="flex:1">
+                        <div class="progress-bar" style="height:8px; border-radius:4px">
+                            <div id="nestProgressBar" class="progress-fill" style="width:0%; transition:width 0.4s ease; border-radius:4px"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div class="stat-card">
-                <div style="display:flex; justify-content:space-between; font-size:0.78rem">
-                    <span style="color:var(--text-muted)">Placed Parts:</span>
-                    <span id="placedCountVal" style="color:var(--accent-cyan); font-family:var(--font-mono); font-weight:600">0 / 0</span>
+            <div class="stat-card" style="padding:10px 12px">
+                <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:6px; letter-spacing:0.06em">MATERIAL UTILIZATION</div>
+                <div style="display:flex; align-items:center; gap:8px">
+                    <div id="utilizationVal" style="font-size:1.6rem; font-family:var(--font-mono); color:var(--accent-green); font-weight:700; min-width:52px">0%</div>
+                    <div style="flex:1">
+                        <div class="progress-bar" style="height:8px; border-radius:4px">
+                            <div id="utilizationProgress" class="progress-fill" style="width:0%; transition:width 0.4s ease; border-radius:4px; background:var(--accent-green)"></div>
+                        </div>
+                    </div>
                 </div>
-                <div style="display:flex; justify-content:space-between; font-size:0.78rem; margin-top:4px">
+            </div>
+
+            <div class="stat-card" style="padding:10px 12px">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px">
+                    <span style="font-size:0.7rem; color:var(--text-muted); letter-spacing:0.06em">ITERATIONS</span>
+                    <span id="iterationsVal" style="font-size:1rem; font-family:var(--font-mono); color:var(--accent-cyan); font-weight:700">0 / 0</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center">
+                    <span style="font-size:0.7rem; color:var(--text-muted); letter-spacing:0.06em">PARTS PLACED</span>
+                    <span id="placedCountVal" style="font-size:1rem; font-family:var(--font-mono); color:var(--accent-green); font-weight:700">0 / 0</span>
+                </div>
+            </div>
+
+            <div class="stat-card" style="padding:8px 12px">
+                <div style="display:flex; justify-content:space-between; font-size:0.78rem">
                     <span style="color:var(--text-muted)">Calc Time:</span>
                     <span id="calcTimeVal" style="color:var(--accent-green); font-family:var(--font-mono)">0 ms</span>
                 </div>
             </div>
         </div>
+
 
     </div>
 
@@ -966,12 +993,15 @@
             });
 
             const efficiency = Math.min(98.5, Math.round((totalPartArea / binArea) * 1000) / 10);
-            document.getElementById('utilizationVal').innerText = `${efficiency}%`;
-            document.getElementById('utilizationProgress').style.width = `${efficiency}%`;
+            // Update the live stats panel utilization display
+            const utilEl = document.getElementById('utilizationVal');
+            const utilBar = document.getElementById('utilizationProgress');
+            if (utilEl) utilEl.innerText = `${efficiency}%`;
+            if (utilBar) utilBar.style.width = `${efficiency}%`;
             document.getElementById('placedCountVal').innerText = `${objs.length} / ${objs.length}`;
         }
 
-        // FAST NEST - WITH VISUAL RUNNING FEEDBACK AND ZERO OVERLAP EXACT FABRIC ORIGIN
+        // LIVE NESTING — streams progress from server like svgnest.com
         async function runFastNest() {
             const objs = fabricCanvas.getObjects().filter(o => o !== binRect);
             if (objs.length === 0) {
@@ -981,18 +1011,23 @@
 
             validateContourSizes();
 
-            // Show visual feedback spinner & disable run button
             const runBtn = document.getElementById('runNestBtn');
             const loadingOverlay = document.getElementById('nestingLoadingOverlay');
             const progressText = document.getElementById('nestingProgressText');
-            
-            const originalBtnText = runBtn.innerHTML;
 
             runBtn.disabled = true;
             runBtn.style.opacity = '0.5';
             runBtn.innerHTML = '⏳ NESTING...';
             loadingOverlay.style.display = 'flex';
             progressText.innerText = '⚡ NESTING IN PROGRESS... (Calculating NFP & GA)';
+
+            // Reset live stats panel
+            document.getElementById('nestProgressVal').innerText = '0%';
+            document.getElementById('nestProgressBar').style.width = '0%';
+            document.getElementById('utilizationVal').innerText = '0%';
+            document.getElementById('utilizationProgress').style.width = '0%';
+            document.getElementById('iterationsVal').innerText = `0 / ${document.getElementById('nestGenerations').value}`;
+            document.getElementById('placedCountVal').innerText = `0 / ${objs.length}`;
 
             const startTime = performance.now();
 
@@ -1006,22 +1041,14 @@
                 ]
             };
 
-            // Extract polygons from Fabric objects as clean JSON serializable objects.
-            // For fabric.Polygon, o.points are in the polygon's LOCAL coordinate space
-            // (Fabric internally normalizes them so the bounding-box center = (0,0)).
-            // We must transform them to CANVAS space first, then normalize to (0,0) origin
-            // so the nesting engine works in a consistent coordinate system.
-            // We also store the per-object Fabric bbox offset so we can correctly reposition
-            // after nesting.
-            const objNestMeta = []; // stores {bboxLeft, bboxTop} per object for repositioning
-
+            // Extract polygons from Fabric objects - normalize to (0,0) in canvas space
+            const objNestMeta = [];
             const treePolys = objs.map((o, idx) => {
                 let pts = [];
 
                 if (o.type === 'rect') {
                     const w = o.getScaledWidth(), h = o.getScaledHeight();
                     pts = [{x:0, y:0}, {x:w, y:0}, {x:w, y:h}, {x:0, y:h}];
-                    // Store bbox top-left in canvas space (relative to bin origin)
                     const br = o.getBoundingRect(true);
                     objNestMeta[idx] = { bboxLeft: br.left - originX, bboxTop: br.top - originY };
                 } else if (o.type === 'circle') {
@@ -1033,22 +1060,17 @@
                     const br = o.getBoundingRect(true);
                     objNestMeta[idx] = { bboxLeft: br.left - originX, bboxTop: br.top - originY };
                 } else if (o.points && o.points.length > 0) {
-                    // Transform fabric polygon internal points to canvas space, then normalize
                     const matrix = o.calcTransformMatrix();
                     const canvasPts = o.points.map(p => {
                         const tp = fabric.util.transformPoint({ x: p.x, y: p.y }, matrix);
                         return { x: tp.x, y: tp.y };
                     });
                     let minX = Infinity, minY = Infinity;
-                    canvasPts.forEach(p => {
-                        if (p.x < minX) minX = p.x;
-                        if (p.y < minY) minY = p.y;
-                    });
+                    canvasPts.forEach(p => { if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y; });
                     pts = canvasPts.map(p => ({
                         x: Math.round((p.x - minX) * 100) / 100,
                         y: Math.round((p.y - minY) * 100) / 100
                     }));
-                    // minX/minY is the canvas-space top-left of this polygon's bbox
                     objNestMeta[idx] = { bboxLeft: minX - originX, bboxTop: minY - originY };
                 } else {
                     const w = o.getScaledWidth(), h = o.getScaledHeight();
@@ -1057,54 +1079,106 @@
                     objNestMeta[idx] = { bboxLeft: br.left - originX, bboxTop: br.top - originY };
                 }
 
-                return {
-                    id: idx,
-                    source: idx,
-                    rotation: 0, // Reset rotation — we send normalized shapes at 0°
-                    points: pts
-                };
+                return { id: idx, source: idx, rotation: 0, points: pts };
             });
 
             const config = {
                 spacing: parseFloat(document.getElementById('partSpacing').value) || 2,
                 rotations: parseInt(document.getElementById('partRotations').value) || 4,
-                generations: parseInt(document.getElementById('nestGenerations').value) || 15,
+                generations: parseInt(document.getElementById('nestGenerations').value) || 10,
                 useHoles: document.getElementById('useHolesToggle').checked,
                 exploreConcave: document.getElementById('exploreConcaveToggle').checked
             };
 
-            try {
-                const res = await fetch('/api/nest', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        tree: treePolys,
-                        binPolygon: binPoly,
-                        config: config
-                    })
-                });
-                const data = await res.json();
-                const calcTime = Math.round(performance.now() - startTime);
-
-                if (data.placements && data.placements.length > 0 && data.placements[0].length > 0) {
-                    applyPlacementsToFabric(data.placements[0], objs, objNestMeta);
-                    document.getElementById('calcTimeVal').innerText = `${calcTime} ms`;
-                } else if (data.error) {
-                    alert('Nesting Engine Error: ' + data.error);
-                } else {
-                    alert('No valid placement found. Try adjusting sheet size or part spacing.');
-                }
-            } catch (err) {
-                console.error('Fast Nest Error:', err);
-                alert('Nesting connection error: ' + err.message);
-            } finally {
-                // Hide loading overlay & re-enable button
+            const done = () => {
                 runBtn.disabled = false;
                 runBtn.style.opacity = '1';
                 runBtn.innerHTML = '⚡ RUN FAST NEST';
                 loadingOverlay.style.display = 'none';
+                document.getElementById('calcTimeVal').innerText = `${Math.round(performance.now() - startTime)} ms`;
+            };
+
+            try {
+                // Step 1: register job with server, get a token
+                const prepRes = await fetch('/api/nest/prepare', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tree: treePolys, binPolygon: binPoly, config })
+                });
+                const { token, error: prepErr } = await prepRes.json();
+                if (prepErr || !token) throw new Error(prepErr || 'Prepare failed');
+
+                // Step 2: open SSE stream and receive live generation updates
+                await new Promise((resolve, reject) => {
+                    const es = new EventSource(`/api/nest/stream?token=${token}`);
+
+                    es.onmessage = (e) => {
+                        let msg;
+                        try { msg = JSON.parse(e.data); } catch { return; }
+
+                        if (msg.type === 'progress') {
+                            // Update live stats panel
+                            const pct = msg.progress || 0;
+                            const util = msg.utilization !== null ? msg.utilization : '?';
+                            document.getElementById('nestProgressVal').innerText = `${pct}%`;
+                            document.getElementById('nestProgressBar').style.width = `${pct}%`;
+                            document.getElementById('utilizationVal').innerText = `${util}%`;
+                            document.getElementById('utilizationProgress').style.width = `${Math.min(100, util)}%`;
+                            document.getElementById('iterationsVal').innerText = `${msg.generation} / ${msg.totalGenerations}`;
+                            document.getElementById('placedCountVal').innerText = `${msg.placedCount} / ${msg.totalParts}`;
+
+                            progressText.innerText = `⚡ Gen ${msg.generation}/${msg.totalGenerations} — ${msg.placedCount}/${msg.totalParts} parts — ${util}% utilization`;
+
+                            // Live canvas preview after every generation
+                            if (msg.placements && msg.placements[0] && msg.placements[0].length > 0) {
+                                applyPlacementsToFabric(msg.placements[0], objs, objNestMeta);
+                            }
+                        }
+
+                        if (msg.type === 'done') {
+                            es.close();
+                            // Final placement
+                            if (msg.placements && msg.placements[0] && msg.placements[0].length > 0) {
+                                applyPlacementsToFabric(msg.placements[0], objs, objNestMeta);
+                            } else {
+                                showSuccessToast('⚠️ No valid placement found. Try adjusting settings.');
+                            }
+                            resolve();
+                        }
+
+                        if (msg.type === 'error') {
+                            es.close();
+                            reject(new Error(msg.message));
+                        }
+                    };
+
+                    es.onerror = (err) => {
+                        es.close();
+                        reject(new Error('SSE connection lost'));
+                    };
+                });
+
+            } catch (err) {
+                console.error('Fast Nest Error:', err);
+                // Fallback to original one-shot endpoint
+                try {
+                    const res = await fetch('/api/nest', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tree: treePolys, binPolygon: binPoly, config })
+                    });
+                    const data = await res.json();
+                    if (data.placements && data.placements[0] && data.placements[0].length > 0) {
+                        applyPlacementsToFabric(data.placements[0], objs, objNestMeta);
+                    } else if (data.error) {
+                        alert('Nesting Engine Error: ' + data.error);
+                    }
+                } catch (fallbackErr) {
+                    alert('Nesting connection error: ' + fallbackErr.message);
+                }
+            } finally {
+                done();
             }
-        }
 
         // UPDATE FABRIC.JS CAD OBJECTS WITH 100% PRECISE ORIGIN MAPPING (ZERO OVERLAP)
         // posX/posY from server = translation in nesting-space (bin origin = 0,0)
