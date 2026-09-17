@@ -458,9 +458,15 @@
 		return { x: (sx - r.left - view.x) / view.k, y: (sy - r.top - view.y) / view.k };
 	}
 
+	let fitRetries = 0;
 	function fitView() {
 		const r = canvas.getBoundingClientRect();
-		if (r.width < 10) return;
+		if (r.width < 10 || r.height < 10) {
+			// layout not ready yet (mobile drawers, orientation change) — retry briefly
+			if (fitRetries++ < 90) requestAnimationFrame(fitView);
+			return;
+		}
+		fitRetries = 0;
 		const sh = activeSheet(), f = unitFactor();
 		const boxes = [{ x: 0, y: 0, width: sh.w * f, height: sh.h * f }];
 		if (state.mode === 'edit') for (const p of liveParts()) boxes.push(p.bounds);

@@ -437,6 +437,10 @@ input[type="checkbox"] { accent-color: var(--accent); }
 
 @media (max-width: 1180px) {
 	#main { grid-template-columns: 44px 0px 1fr 0px; }
+	#center { grid-column: 3; grid-row: 1; min-width: 0; }
+	#topbar { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+	#topbar::-webkit-scrollbar { display: none; }
+	.toolgroup, .brand, .jobchips { flex: none; }
 	.panelcol {
 		position: fixed; top: 46px; bottom: 26px;
 		width: min(300px, 82vw);
@@ -465,9 +469,11 @@ input[type="checkbox"] { accent-color: var(--accent); }
 		z-index: 45;
 	}
 	#main { grid-template-columns: 0 0 1fr 0; }
+	#center { grid-column: 3; grid-row: 1; }
 	.railbtn { width: 40px; height: 38px; }
 	.railsep { width: 1px; height: 24px; margin: 0 5px; }
-	#canvasWrap { grid-template-columns: 0 1fr; grid-template-rows: 0 1fr; }
+	#canvasWrap { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+	#viewport { grid-column: 1; grid-row: 1; }
 	#rulerTop, #rulerLeft, #rulerCorner { display: none; }
 	#simbar { margin-bottom: 44px; }
 	#statusbar { font-size: 10px; }
