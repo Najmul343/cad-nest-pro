@@ -4,4 +4,4 @@ services:
     env: node
     plan: free
     buildCommand: npm install
-    startCommand: node src/server.cjs
+    startCommand: node server.js

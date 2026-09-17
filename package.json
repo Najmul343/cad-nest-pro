@@ -1,24 +1,22 @@
 {
-  "name": "nestingengine",
+  "name": "cad-nest-pro",
   "version": "1.0.0",
-  "description": "",
-  "main": "src/server.cjs",
+  "description": "Deepnest CAD Web — browser-based nesting tool for laser/CNC cutting with a CAD-style UI. Zero runtime dependencies.",
+  "main": "server.js",
   "scripts": {
-    "start": "node src/server.cjs",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "@deepnest/calculate-nfp": "^202503.13.155300",
-    "clipper-lib": "^6.4.2",
-    "express": "^5.2.1",
-    "js-clipper": "^1.0.1",
-    "multer": "^2.4.0",
-    "polybooljs": "^1.2.2"
+  "engines": {
+    "node": ">=14"
   },
-  "devDependencies": {
-    "esbuild": "^0.28.2"
-  }
+  "keywords": [
+    "nesting",
+    "cad",
+    "cnc",
+    "laser",
+    "deepnest",
+    "svgnest"
+  ],
+  "license": "MIT",
+  "private": true
 }
