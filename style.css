@@ -21,6 +21,8 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+.hidden { display: none !important; }
+
 html, body { height: 100%; }
 
 body {
@@ -639,3 +641,139 @@ input[type="checkbox"] { accent-color: var(--accent); }
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 5px; border: 2px solid var(--bg1); }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ============================================================
+   UX layer: journey bar, welcome, result bar, guided tour
+   ============================================================ */
+
+/* ---- journey steps ---- */
+#journey {
+	position: absolute;
+	top: 10px; left: 50%; transform: translateX(-50%);
+	display: flex; align-items: center; gap: 6px;
+	background: rgba(27,29,33,0.92);
+	border: 1px solid var(--line);
+	border-radius: 20px;
+	padding: 6px 14px;
+	z-index: 4;
+	max-width: calc(100% - 90px);
+	overflow-x: auto;
+	white-space: nowrap;
+	scrollbar-width: none;
+}
+#journey::-webkit-scrollbar { display: none; }
+.jstep {
+	display: inline-flex; align-items: center; gap: 6px;
+	font-size: 11.5px; color: var(--txt2);
+	cursor: pointer; padding: 2px 4px;
+	border-radius: 10px;
+	transition: color 0.15s;
+}
+.jstep b {
+	width: 16px; height: 16px;
+	border-radius: 50%;
+	background: var(--bg3); color: var(--txt1);
+	font-size: 9.5px; font-weight: 700;
+	display: inline-flex; align-items: center; justify-content: center;
+	flex: none;
+}
+.jstep:hover { color: var(--txt0); }
+.jstep.current { color: var(--accent); }
+.jstep.current b { background: var(--accent); color: #1b1c1f; }
+.jstep.done { color: var(--green); }
+.jstep.done b { background: var(--green); color: #10241a; }
+.jstep.done b::before { content: '✓'; }
+.jstep.done b { font-size: 0; }
+.jsep { color: var(--txt2); opacity: 0.5; font-size: 11px; flex: none; }
+
+/* ---- result bar ---- */
+#resultBar {
+	position: absolute;
+	top: 10px; left: 50%; transform: translateX(-50%);
+	display: flex; align-items: center; gap: 10px;
+	background: rgba(23, 32, 27, 0.94);
+	border: 1px solid var(--green);
+	border-radius: 10px;
+	padding: 8px 14px;
+	z-index: 5;
+	max-width: calc(100% - 24px);
+	box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+}
+.rb-icon {
+	width: 22px; height: 22px; flex: none;
+	border-radius: 50%;
+	background: var(--green); color: #10241a;
+	display: inline-flex; align-items: center; justify-content: center;
+	font-weight: 700; font-size: 12px;
+}
+.rb-text { font-size: 12.5px; color: var(--txt0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rb-text b { color: var(--green); }
+#resultBar .mini { flex: none; min-width: 70px; }
+#resultBar .mini.accent { border-color: var(--accent-dim); color: var(--accent); }
+
+/* ---- welcome empty state ---- */
+#welcome {
+	position: absolute; inset: 0;
+	display: flex; align-items: center; justify-content: center;
+	z-index: 7;
+	background: radial-gradient(ellipse at center, rgba(19,20,23,0.55), rgba(19,20,23,0.82));
+}
+.welcome-card {
+	text-align: center;
+	background: var(--bg1);
+	border: 1px solid var(--bg3);
+	border-radius: 14px;
+	padding: 30px 36px 24px;
+	max-width: min(430px, calc(100vw - 40px));
+	box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+	animation: toastin 0.25s ease-out;
+}
+.wc-logo { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 12px; }
+.wc-logo h3 { font-size: 17px; letter-spacing: 0.3px; }
+.welcome-card p { font-size: 12.5px; color: var(--txt1); line-height: 1.6; margin-bottom: 18px; }
+.wc-actions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.wcbtn {
+	height: 40px;
+	border-radius: 8px;
+	border: 1px solid var(--line);
+	background: var(--bg2);
+	color: var(--txt0);
+	font: inherit; font-size: 13.5px;
+	cursor: pointer;
+	transition: background 0.15s, border-color 0.15s;
+}
+.wcbtn:hover { border-color: var(--accent-dim); background: var(--bg3); }
+.wcbtn.primary { background: #c96a1b; border-color: #e07f2a; color: #fff; font-weight: 600; }
+.wcbtn.primary:hover { background: #e07f2a; }
+.wc-hint { font-size: 11px; color: var(--txt2); }
+
+/* ---- guided tour ---- */
+#tourCard {
+	position: fixed;
+	width: 300px;
+	background: var(--bg1);
+	border: 1px solid var(--accent-dim);
+	border-radius: 10px;
+	padding: 12px 14px;
+	z-index: 90;
+	box-shadow: 0 16px 50px rgba(0,0,0,0.6);
+	animation: toastin 0.2s ease-out;
+}
+.tour-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.tour-step { font: 10.5px var(--mono); color: var(--accent); letter-spacing: 1px; }
+.tour-dots { flex: 1; display: flex; gap: 4px; }
+.tour-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--bg3); }
+.tour-dots i.on { background: var(--accent); }
+#tourCard h4 { font-size: 13px; margin-bottom: 4px; }
+#tourCard p { font-size: 12px; color: var(--txt1); line-height: 1.55; margin-bottom: 10px; }
+.tour-foot { display: flex; gap: 8px; justify-content: flex-end; }
+.tour-foot .mini { min-width: 64px; }
+.tour-foot .mini.accent { border-color: var(--accent-dim); color: var(--accent); }
+
+/* mobile tweaks for UX layer */
+@media (max-width: 760px) {
+	#journey { top: 8px; padding: 5px 10px; gap: 4px; max-width: calc(100% - 20px); }
+	.jstep { font-size: 10.5px; gap: 4px; }
+	#resultBar { flex-wrap: wrap; justify-content: center; top: 44px; }
+	.rb-text { white-space: normal; }
+}

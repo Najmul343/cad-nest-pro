@@ -21,6 +21,7 @@
 		var binPolygon = null;
 		var binBounds = null;
 		var nfpCache = {};
+		var nfpCachePersistent = {}; // survives generations (LRU-capped below)
 		var config = {
 			clipperScale: 10000000,
 			curveTolerance: 0.3, 
@@ -105,6 +106,7 @@
 			
 			best = null;
 			nfpCache = {};
+			nfpCachePersistent = {};
 			binPolygon = null;
 			GA = null;
 						
@@ -311,8 +313,14 @@
 				}
 			}
 			
-			// only keep cache for one cycle
-			nfpCache = newCache;
+			// merge this cycle into the persistent cache: the GA revisits the same
+			// shape/rotation pairs across generations, so hits compound over time
+			for (var ck in newCache){ nfpCachePersistent[ck] = newCache[ck]; }
+			var ckKeys = Object.keys(nfpCachePersistent);
+			if (ckKeys.length > 4000){
+				for (var dk = 0; dk < 2000; dk++) delete nfpCachePersistent[ckKeys[dk]];
+			}
+			nfpCache = nfpCachePersistent;
 			
 			// deduplicate identical NFP pairs within this cycle (many quantity clones
 			// share the same source pair and rotation combo) - big speedup in the browser
@@ -326,7 +334,19 @@
 			
 			var worker = new PlacementWorker(binPolygon, placelist.slice(0), ids, rotations, config, nfpCache);
 			
-			var p = new Parallel(nfpPairs, {
+			// batch NFP pairs into one chunk per CPU core: parallel.js spawns one
+			// worker per data item, so ~500 pairs meant ~500 worker spawns per
+			// generation (~40ms each) which dwarfed the actual NFP math
+			var chunks = [];
+			var nch = Math.max(1, Math.min(nfpPairs.length, (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 4));
+			var per = Math.ceil(nfpPairs.length / nch);
+			for (var ci = 0; ci < nfpPairs.length; ci += per) {
+				chunks.push(nfpPairs.slice(ci, ci + per));
+			}
+			
+			window.__enginetiming = window.__enginetiming || { nfp: 0, place: 0, cycles: 0 };
+			var __tNfp0 = performance.now();
+			var p = new Parallel(chunks, {
 				env: {
 					binPolygon: binPolygon,
 					searchEdges: config.exploreConcave,
@@ -337,6 +357,7 @@
 			
 			p.require('matrix.js');
 			p.require('geometryutil.js');
+			p.require('nfpkernel.js');
 			p.require('placementworker.js');
 			
 			var self = this;
@@ -347,7 +368,8 @@
 				return Parallel.prototype._spawnMapWorker.call(p, i, cb, done, env, wrk);
 			}
 			
-			p.map(function(pair){
+			p.map(function(chunk){
+				function processPair(pair){
 				if(!pair || pair.length == 0){
 					return null;
 				}
@@ -382,7 +404,13 @@
 					}
 				}
 				else{
-					nfp = GeometryUtil.noFitPolygon(A,B,false,searchEdges);
+					// WASM fast path: exact convex-convex NFP (minkowski merge)
+					if (typeof self !== 'undefined' && self.NfpKernel && self.NfpKernel.supported){
+						nfp = self.NfpKernel.outerNfp(A, B);
+					}
+					if (!nfp){
+						nfp = GeometryUtil.noFitPolygon(A,B,false,searchEdges);
+					}
 					
 					// sanity check
 					if(!nfp || nfp.length == 0){
@@ -457,10 +485,30 @@
 				}
 				
 				return {key: pair.key, value: nfp};
+				}
+				var out = [];
+				for (var pi = 0; pi < chunk.length; pi++) {
+					var r = processPair(chunk[pi]);
+					if (r) out.push(r);
+				}
+				return out;
 			}).then(function(generatedNfp){
+				window.__enginetiming.nfp = performance.now() - __tNfp0;
+				window.__enginetiming.cycles = (window.__enginetiming.cycles || 0) + 1;
+				var __tPlace0 = performance.now();
+				var flat = [];
 				if(generatedNfp){
-					for(var i=0; i<generatedNfp.length; i++){
-						var Nfp = generatedNfp[i];
+					for(var gi=0; gi<generatedNfp.length; gi++){
+						var partGroup = generatedNfp[gi];
+						if(!partGroup) continue;
+						for(var pj=0; pj<partGroup.length; pj++){
+							if(partGroup[pj]) flat.push(partGroup[pj]);
+						}
+					}
+				}
+				{
+					for(var i=0; i<flat.length; i++){
+						var Nfp = flat[i];
 												
 						if(Nfp){
 							// a null nfp means the nfp could not be generated, either because the parts simply don't fit or an error in the nfp algo
@@ -486,6 +534,7 @@
 				p2.require('placementworker.js');				
 				
 				p2.map(worker.placePaths).then(function(placements){
+					window.__enginetiming.place = performance.now() - __tPlace0;
 					if(!placements || placements.length == 0){
 						return;
 					}

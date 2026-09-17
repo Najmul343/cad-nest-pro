@@ -169,6 +169,45 @@
 					<div id="dropHint" class="hidden">Drop SVG / DXF files to import</div>
 					<button id="drawerLeft" class="draweredge left" title="Parts">‹</button>
 					<button id="drawerRight" class="draweredge right" title="Properties">›</button>
+
+					<!-- journey steps: the guided path from import to export -->
+					<div id="journey" class="hidden" title="Your nesting workflow">
+						<span class="jstep" data-step="import"><b>1</b> Import parts</span>
+						<span class="jsep">›</span>
+						<span class="jstep" data-step="qty"><b>2</b> Quantities</span>
+						<span class="jsep">›</span>
+						<span class="jstep" data-step="stock"><b>3</b> Sheet stock</span>
+						<span class="jsep">›</span>
+						<span class="jstep" data-step="nest"><b>4</b> Nest</span>
+						<span class="jsep">›</span>
+						<span class="jstep" data-step="export"><b>5</b> Export</span>
+					</div>
+
+					<!-- nest result summary + next actions -->
+					<div id="resultBar" class="hidden">
+						<span class="rb-icon">✓</span>
+						<span id="resultText" class="rb-text">–</span>
+						<button id="rbExport" class="mini accent">Export SVG</button>
+						<button id="rbReport" class="mini">Report</button>
+						<button id="rbSim" class="mini">▶ Cut sim</button>
+						<button id="rbEdit" class="mini">Edit parts</button>
+					</div>
+
+					<!-- first-run empty state -->
+					<div id="welcome" class="hidden">
+						<div class="welcome-card">
+							<div class="wc-logo">
+								<svg viewBox="0 0 24 24" width="34" height="34"><path fill="#ff9a3c" d="M12 2l8.66 5v10L12 22l-8.66-5V7z"/><path fill="#1b1c1f" d="M12 6.2l5.2 3v5.6l-5.2 3-5.2-3V9.2z"/></svg>
+								<h3>Welcome to Deepnest CAD</h3>
+							</div>
+							<p>Turn your SVG / DXF parts into optimized cutting layouts —<br>nested across sheets with cost &amp; time estimates.</p>
+							<div class="wc-actions">
+								<button id="wcImport" class="wcbtn primary">📂 Import SVG / DXF</button>
+								<button id="wcSample" class="wcbtn">⚡ Try the sample job</button>
+							</div>
+							<span class="wc-hint">…or just drop files anywhere on this canvas</span>
+						</div>
+					</div>
 				</div>
 			</div>
 			<!-- simulation + history bar -->
@@ -340,6 +379,8 @@
 		<span class="vsep"></span>
 		<span id="statusUnits">72 u = 1 in</span>
 		<span class="vsep"></span>
+		<span id="statusKernel">NFP: –</span>
+		<span class="vsep"></span>
 		<span id="statusCoords">x 0.0  y 0.0</span>
 	</footer>
 </div>
@@ -394,7 +435,19 @@
 				<tr><td>Esc</td><td>cancel / deselect / stop sim</td></tr>
 				<tr><td>Space / 2 fingers</td><td>pan · pinch to zoom</td></tr>
 			</table>
+			<button id="replayTour" class="mini" style="margin-top:10px;width:100%">🔄 Replay the 30-second tour</button>
 		</div>
+	</div>
+</div>
+
+<!-- ============ GUIDED TOUR CARD ============ -->
+<div id="tourCard" class="hidden">
+	<div class="tour-head"><span id="tourStep" class="tour-step">1/5</span><span class="tour-dots" id="tourDots"></span><button id="tourSkip" class="modalclose" title="Skip tour">✕</button></div>
+	<h4 id="tourTitle">–</h4>
+	<p id="tourBody">–</p>
+	<div class="tour-foot">
+		<button id="tourBack" class="mini">Back</button>
+		<button id="tourNext" class="mini accent">Next</button>
 	</div>
 </div>
 
@@ -409,6 +462,7 @@
 <script src="util/clipper.js"></script>
 <script src="util/parallel.js"></script>
 <script src="util/geometryutil.js"></script>
+<script src="util/nfpkernel.js"></script>
 <script src="util/placementworker.js"></script>
 <script src="svgparser.js"></script>
 <script src="svgnest.js"></script>

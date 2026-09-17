@@ -583,6 +583,7 @@
 			content.appendChild(g);
 		}
 		renderOverlay();
+		updateUxState();
 	}
 
 	function refreshPartDisplay(p) {
@@ -1382,6 +1383,7 @@
 	}
 
 	function renderNestView() {
+		const __tRender0 = performance.now();
 		content.innerHTML = '';
 		overlay.innerHTML = '';
 		stopSim();
@@ -1432,6 +1434,8 @@
 			$('statRemnant').textContent = r ? fmt(r.side) + ' × ' + fmt(r.side) + ' u  (' + fmt(r.sideMm) + ' mm)' : '–';
 		} catch (e) { console.warn('remnant calc failed', e); }
 		updateJobStats();
+		window.__enginetiming = window.__enginetiming || {};
+		window.__enginetiming.render = performance.now() - __tRender0;
 	}
 
 	function updateRunStats() {
@@ -1570,6 +1574,8 @@
 			out += '</svg>';
 		}
 		download('deepnest-result-' + last.sheets.length + 'sheets.svg', out);
+		journeyState.exported = true;
+		updateUxState();
 		setStatus('Exported ' + last.sheets.length + ' sheet(s) as SVG.');
 	}
 
@@ -1771,6 +1777,7 @@
 		$('chipParts').textContent = s.qty + ' parts · ' + fmtLen(s.cutlen * U2MM);
 		$('chipSheets').textContent = s.sheets + ' sheets · ' + Math.round((1 - s.waste) * 100) + '% fill';
 		$('chipCost').textContent = fmtMoney(s.total) + ' · ' + fmtMoney(s.costPerPart) + '/part';
+		if (typeof updateUxState === 'function') updateUxState();
 		return s;
 	}
 
@@ -2142,6 +2149,152 @@
 		if (ev.key === '?' && ev.target.tagName !== 'INPUT') { closeModals(); $('helpModal').classList.remove('hidden'); }
 	});
 
+	/* ============================================================
+	   UX LAYER: guided journey, welcome state, result bar, tour
+	   ============================================================ */
+
+	const journeyState = { stockTouched: false, exported: false };
+
+	function updateUxState() {
+		updateJourney();
+		updateWelcome();
+		updateResultBar();
+	}
+
+	function journeyStepState() {
+		const hasParts = liveParts().length > 0;
+		const qtyTouched = liveParts().some(p => p.qty !== 1);
+		const nested = state.history.length > 0;
+		return {
+			import: hasParts,
+			qty: hasParts && qtyTouched,
+			stock: journeyState.stockTouched,
+			nest: nested,
+			export: journeyState.exported
+		};
+	}
+
+	function updateJourney() {
+		const j = $('journey');
+		if (state.mode !== 'edit' || state.running || !liveParts().length) { j.classList.add('hidden'); return; }
+		j.classList.remove('hidden');
+		const st = journeyStepState();
+		const order = ['import', 'qty', 'stock', 'nest', 'export'];
+		let currentSet = false;
+		for (const step of order) {
+			const el = j.querySelector('[data-step="' + step + '"]');
+			if (!el) continue;
+			el.classList.toggle('done', st[step]);
+			const current = !st[step] && !currentSet;
+			el.classList.toggle('current', current);
+			if (current) currentSet = true;
+			el.title = stepHint(step, st);
+		}
+	}
+
+	function stepHint(step, st) {
+		switch (step) {
+			case 'import': return st.import ? 'Parts imported ✓ — click to import more' : 'Click to import SVG or DXF files';
+			case 'qty': return st.qty ? 'Quantities set ✓' : 'Click to open the parts list and set how many of each part to cut';
+			case 'stock': return st.stock ? 'Sheet stock chosen ✓ — click to change' : 'Click for the Smart Optimizer: it picks the best sheet size for you';
+			case 'nest': return st.nest ? 'Nested ✓ — press Nest again to keep improving' : 'Click to start nesting on the active sheet';
+			case 'export': return st.export ? 'Exported ✓' : 'Click to download the nesting result as SVG';
+		}
+		return '';
+	}
+
+	$('journey').addEventListener('click', (ev) => {
+		const step = ev.target.closest('.jstep');
+		if (!step) return;
+		const s = step.dataset.step;
+		if (s === 'import') $('btnImport').click();
+		else if (s === 'qty') flashPanel('left', '#partList');
+		else if (s === 'stock') { openOptimizer(); }
+		else if (s === 'nest') { if (!state.running) startNesting(); }
+		else if (s === 'export') { if (state.history.length) exportSvg(); else toast('Nest first — export needs a result.'); }
+	});
+
+	function flashPanel(side, sel) {
+		if (window.innerWidth <= 1180) document.body.classList.add(side === 'left' ? 'show-left' : 'show-right');
+		const el = document.querySelector(sel);
+		if (el) {
+			el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+			el.style.transition = 'box-shadow 0.3s';
+			el.style.boxShadow = '0 0 0 2px var(--accent)';
+			setTimeout(() => { el.style.boxShadow = ''; }, 1200);
+		}
+	}
+
+	function updateWelcome() {
+		const w = $('welcome');
+		const show = state.mode === 'edit' && liveParts().length === 0 && !state.running;
+		w.classList.toggle('hidden', !show);
+	}
+	$('wcImport').onclick = () => $('btnImport').click();
+	$('wcSample').onclick = () => $('btnSample').click();
+
+	function updateResultBar() {
+		const rb = $('resultBar');
+		const last = state.history[state.history.length - 1];
+		const show = state.mode === 'nest' && !state.running && !!last;
+		rb.classList.toggle('hidden', !show);
+		if (!show) return;
+		$('resultText').innerHTML = '<b>' + (last.placed || '') + '</b> parts on <b>' + last.sheets.length + '</b> sheet' + (last.sheets.length > 1 ? 's' : '') + ' — fill <b>' + (last.util * 100).toFixed(1) + '%</b>';
+	}
+	$('rbExport').onclick = exportSvg;
+	$('rbReport').onclick = showReport;
+	$('rbSim').onclick = () => { if (!sim) startSim(); };
+	$('rbEdit').onclick = backToEdit;
+
+	/* ---- first-run guided tour ---- */
+
+	const TOUR_KEY = 'dn_cad_tour_v2';
+	const TOUR_STEPS = [
+		{ sel: '#viewport', title: 'The cutting canvas', text: 'Your sheet stock lives here. Drag empty space to pan, scroll or pinch to zoom, and drag any part to reposition it. Del removes, arrows nudge.' },
+		{ sel: '#toolrail', title: 'CAD tools', text: 'Select & move, measure distances, draw rectangles / circles / polygons, flip, rotate, duplicate and delete — with grid snapping (G).' },
+		{ sel: '#left', title: 'Parts library', text: 'Every imported part shows here with a live thumbnail. Set quantities with + / − — the nester cuts exactly these amounts.' },
+		{ sel: '#btnOptimize', title: 'Smart Sheet Optimizer', text: 'Not sure which sheet size to buy? Optimize ranks standard stock sizes by estimated waste and applies the best one.' },
+		{ sel: '#btnStart', title: 'Nest → Export', text: 'Press Nest: better layouts stream in live as the engine evolves. Stop anytime, then Export the SVG, run the cut simulation, or download a costed Report.' }
+	];
+	let tourIdx = -1;
+
+	function tourShow(i) {
+		tourIdx = i;
+		const card = $('tourCard');
+		if (i < 0 || i >= TOUR_STEPS.length) { tourEnd(); return; }
+		const st = TOUR_STEPS[i];
+		const target = document.querySelector(st.sel);
+		$('tourTitle').textContent = st.title;
+		$('tourBody').textContent = st.text;
+		$('tourStep').textContent = (i + 1) + '/' + TOUR_STEPS.length;
+		$('tourDots').innerHTML = TOUR_STEPS.map((_, d) => '<i class="' + (d === i ? 'on' : '') + '"></i>').join('');
+		$('tourBack').style.visibility = i === 0 ? 'hidden' : 'visible';
+		$('tourNext').textContent = i === TOUR_STEPS.length - 1 ? 'Done ✓' : 'Next';
+		card.classList.remove('hidden');
+		// position near the target, clamped to the viewport
+		const cw = 300, ch = card.offsetHeight || 150;
+		let x = window.innerWidth / 2 - cw / 2, y = window.innerHeight - ch - 60;
+		if (target) {
+			const r = target.getBoundingClientRect();
+			x = Math.min(Math.max(8, r.left + r.width / 2 - cw / 2), window.innerWidth - cw - 8);
+			y = r.bottom + 12;
+			if (y + ch > window.innerHeight - 34) y = Math.max(56, r.top - ch - 12);
+		}
+		card.style.left = x + 'px';
+		card.style.top = y + 'px';
+	}
+	function tourEnd() {
+		$('tourCard').classList.add('hidden');
+		tourIdx = -1;
+		try { localStorage.setItem(TOUR_KEY, '1'); } catch (e) {}
+	}
+	function startTour() { closeModals(); tourShow(0); }
+
+	$('tourNext').onclick = () => tourShow(tourIdx + 1);
+	$('tourBack').onclick = () => tourShow(Math.max(0, tourIdx - 1));
+	$('tourSkip').onclick = tourEnd;
+	$('replayTour').onclick = startTour;
+
 	/* ================= init ================= */
 
 	state.sheets = [makeSheet('Sheet 1', 600, 400, 'px')];
@@ -2155,9 +2308,24 @@
 	renderEditView();
 	updateSpacingHint();
 	updateJobStats();
+	if (window.NfpKernel && window.NfpKernel.supported) {
+		$('statusKernel').textContent = 'NFP: WASM ⚡';
+		$('statusKernel').style.color = 'var(--green)';
+	} else {
+		$('statusKernel').textContent = 'NFP: JS';
+	}
 	setStatus('Ready. Import SVG/DXF or drop files on the canvas — then press Optimize or Nest.');
 
 	loadSample();
+
+	// first-run guided tour (once per browser)
+	try {
+		if (!localStorage.getItem(TOUR_KEY)) {
+			setTimeout(() => {
+				if (liveParts().length && !state.running) startTour();
+			}, 1600);
+		}
+	} catch (e) { /* private mode */ }
 
 	// exposed for automated testing / power users
 	window.__cad = {
