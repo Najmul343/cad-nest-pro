@@ -1001,7 +1001,7 @@
             document.getElementById('placedCountVal').innerText = `${objs.length} / ${objs.length}`;
         }
 
-        // LIVE NESTING — streams progress using NATIVE SVGNest WebWorkers
+        // LIVE NESTING — streams progress from DEEPNEST C++ backend (fast & accurate)
         async function runFastNest() {
             const objs = fabricCanvas.getObjects().filter(o => o !== binRect);
             if (objs.length === 0) {
@@ -1031,13 +1031,22 @@
 
             const startTime = performance.now();
 
-            // Build an SVG string to pass to native SVGNest
-            let svgStr = `<svg width="${binDimensions.width}" height="${binDimensions.height}" xmlns="http://www.w3.org/2000/svg">`;
-            svgStr += `<polygon id="BIN_SHEET" points="0,0 ${binDimensions.width},0 ${binDimensions.width},${binDimensions.height} 0,${binDimensions.height}" />`;
+            const binPoly = {
+                id: 'BIN_SHEET',
+                points: [
+                    { x: 0, y: 0 },
+                    { x: binDimensions.width, y: 0 },
+                    { x: binDimensions.width, y: binDimensions.height },
+                    { x: 0, y: binDimensions.height }
+                ]
+            };
 
+            // Extract polygons from Fabric objects - normalize to (0,0) in canvas space
+            // This is the EXACT mathematical fix that prevented overlaps in native mode.
             const objNestMeta = [];
-            objs.forEach((o, idx) => {
+            const treePolys = objs.map((o, idx) => {
                 let pts = [];
+
                 if (o.type === 'rect') {
                     const w = o.getScaledWidth(), h = o.getScaledHeight();
                     pts = [{x:0, y:0}, {x:w, y:0}, {x:w, y:h}, {x:0, y:h}];
@@ -1063,112 +1072,149 @@
                     const w = o.getScaledWidth(), h = o.getScaledHeight();
                     pts = [{x:0, y:0}, {x:w, y:0}, {x:w, y:h}, {x:0, y:h}];
                 }
-                
-                let ptsString = pts.map(p => `${p.x},${p.y}`).join(' ');
-                svgStr += `<polygon id="obj_${idx}" points="${ptsString}" />`;
+
+                return { id: idx, source: idx, rotation: 0, points: pts };
             });
-            svgStr += `</svg>`;
 
             const config = {
                 spacing: parseFloat(document.getElementById('partSpacing').value) || 2,
                 rotations: parseInt(document.getElementById('partRotations').value) || 4,
-                populationSize: 10,
-                mutationRate: 10,
+                generations: parseInt(document.getElementById('nestGenerations').value) || 10,
                 useHoles: document.getElementById('useHolesToggle').checked,
                 exploreConcave: document.getElementById('exploreConcaveToggle').checked
             };
-            
-            SvgNest.config(config);
-            
-            // Parse SVG and set bin
-            const parsedSvg = SvgNest.parsesvg(svgStr);
-            const binEl = Array.from(parsedSvg.childNodes).find(n => n.getAttribute('id') === 'BIN_SHEET');
-            SvgNest.setbin(binEl);
-            
-            let gen = 0;
-            const maxGen = parseInt(document.getElementById('nestGenerations').value) || 10;
 
-            const progressCb = (percent) => {
-                let p = Math.min(100, Math.round(percent * 100));
-                document.getElementById('nestProgressVal').innerText = `${p}%`;
-                document.getElementById('nestProgressBar').style.width = `${p}%`;
+            const done = () => {
+                runBtn.disabled = false;
+                runBtn.style.opacity = '1';
+                runBtn.innerHTML = '⚡ RUN FAST NEST';
+                loadingOverlay.style.display = 'none';
+                document.getElementById('calcTimeVal').innerText = `${Math.round(performance.now() - startTime)} ms`;
             };
 
-            const displayCb = (svglist, util, placed, total) => {
-                if (!svglist || svglist.length === 0) return;
-                
-                gen++;
-                let utilization = Math.round(util * 1000) / 10;
-                
-                document.getElementById('iterationsVal').innerText = `${gen} / ${maxGen}`;
-                document.getElementById('placedCountVal').innerText = `${placed} / ${total}`;
-                document.getElementById('utilizationVal').innerText = `${utilization}%`;
-                document.getElementById('utilizationProgress').style.width = `${Math.min(100, utilization)}%`;
-                
-                progressText.innerText = `⚡ Gen ${gen}/${maxGen} — ${placed}/${total} parts — ${utilization}% utilization`;
+            try {
+                // Step 1: register job with server, get a token
+                const prepRes = await fetch('/api/nest/prepare', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tree: treePolys, binPolygon: binPoly, config })
+                });
+                const { token, error: prepErr } = await prepRes.json();
+                if (prepErr || !token) throw new Error(prepErr || 'Prepare failed');
 
-                // Update canvas with native SVGNest result
-                applyPlacementsToFabricNative(svglist[0], objs);
+                // Step 2: open SSE stream and receive live generation updates
+                await new Promise((resolve, reject) => {
+                    const es = new EventSource(`/api/nest/stream?token=${token}`);
 
-                if (gen >= maxGen) {
-                    SvgNest.stop();
-                    runBtn.disabled = false;
-                    runBtn.style.opacity = '1';
-                    runBtn.innerHTML = '⚡ RUN FAST NEST';
-                    loadingOverlay.style.display = 'none';
-                    document.getElementById('calcTimeVal').innerText = `${Math.round(performance.now() - startTime)} ms`;
-                    showSuccessToast('✅ Nesting complete!');
+                    es.onmessage = (e) => {
+                        let msg;
+                        try { msg = JSON.parse(e.data); } catch { return; }
+
+                        if (msg.type === 'progress') {
+                            // Update live stats panel
+                            const pct = msg.progress || 0;
+                            const util = msg.utilization !== null ? msg.utilization : '?';
+                            document.getElementById('nestProgressVal').innerText = `${pct}%`;
+                            document.getElementById('nestProgressBar').style.width = `${pct}%`;
+                            document.getElementById('utilizationVal').innerText = `${util}%`;
+                            document.getElementById('utilizationProgress').style.width = `${Math.min(100, util)}%`;
+                            document.getElementById('iterationsVal').innerText = `${msg.generation} / ${msg.totalGenerations}`;
+                            document.getElementById('placedCountVal').innerText = `${msg.placedCount} / ${msg.totalParts}`;
+
+                            progressText.innerText = `⚡ Gen ${msg.generation}/${msg.totalGenerations} — ${msg.placedCount}/${msg.totalParts} parts — ${util}% utilization`;
+
+                            // Live canvas preview after every generation
+                            if (msg.placements && msg.placements[0] && msg.placements[0].length > 0) {
+                                applyPlacementsToFabricAPI(msg.placements[0], objs);
+                            }
+                        }
+
+                        if (msg.type === 'done') {
+                            es.close();
+                            // Final placement
+                            if (msg.placements && msg.placements[0] && msg.placements[0].length > 0) {
+                                applyPlacementsToFabricAPI(msg.placements[0], objs);
+                                showSuccessToast('✅ Nesting complete!');
+                            } else {
+                                showSuccessToast('⚠️ No valid placement found. Try adjusting settings.');
+                            }
+                            resolve();
+                        }
+
+                        if (msg.type === 'error') {
+                            es.close();
+                            reject(new Error(msg.message));
+                        }
+                    };
+
+                    es.onerror = (err) => {
+                        es.close();
+                        reject(new Error('SSE connection lost'));
+                    };
+                });
+
+            } catch (err) {
+                console.error('Fast Nest Error:', err);
+                // Fallback to original one-shot endpoint
+                try {
+                    const res = await fetch('/api/nest', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tree: treePolys, binPolygon: binPoly, config })
+                    });
+                    const data = await res.json();
+                    if (data.placements && data.placements[0] && data.placements[0].length > 0) {
+                        applyPlacementsToFabricAPI(data.placements[0], objs);
+                        showSuccessToast('✅ Nesting complete!');
+                    } else if (data.error) {
+                        alert('Nesting Engine Error: ' + data.error);
+                    }
+                } catch (fallbackErr) {
+                    alert('Nesting connection error: ' + fallbackErr.message);
                 }
-            };
-
-            SvgNest.start(progressCb, displayCb);
+            } finally {
+                done();
+            }
         }
 
-        function applyPlacementsToFabricNative(svgElement, objs) {
-            // svgnest returns an SVG DOM with <g> tags containing translates for each placed shape.
-            const groups = svgElement.querySelectorAll('g');
-            
-            groups.forEach(g => {
-                const transform = g.getAttribute('transform') || '';
-                
-                // Parse translate(x y) and rotate(angle)
-                let tx = 0, ty = 0, angle = 0;
-                const translateMatch = transform.match(/translate\(([-\d.]+)\s+([-\d.]+)\)/);
-                const rotateMatch = transform.match(/rotate\(([-\d.]+)\)/);
-                
-                if (translateMatch) {
-                    tx = parseFloat(translateMatch[1]);
-                    ty = parseFloat(translateMatch[2]);
+        function applyPlacementsToFabricAPI(placement, objs) {
+            const placedList = Array.isArray(placement) ? placement : (placement.sheet || placement.placements || []);
+
+            placedList.forEach((p, idx) => {
+                const targetIdx = p.source !== undefined ? p.source : (p.id !== undefined ? p.id : idx);
+                const targetObj = objs[targetIdx];
+                if (!targetObj) return;
+
+                const posX = (p.translate && p.translate.x !== undefined) ? p.translate.x : (p.x || 0);
+                const posY = (p.translate && p.translate.y !== undefined) ? p.translate.y : (p.y || 0);
+                const rotDeg = (p.rotate !== undefined) ? p.rotate : (p.rotation || 0);
+
+                // Target canvas position: bin origin + nesting offset
+                const targetLeft = originX + posX;
+                const targetTop  = originY + posY;
+
+                if (targetObj.type === 'polygon') {
+                    // For fabric.Polygon, setPositionByOrigin correctly positions
+                    // the bounding-box corner, accounting for Fabric's internal centering.
+                    targetObj.set({ angle: rotDeg });
+                    targetObj.setPositionByOrigin(
+                        new fabric.Point(targetLeft, targetTop),
+                        'left',
+                        'top'
+                    );
+                } else {
+                    targetObj.set({
+                        left: targetLeft,
+                        top: targetTop,
+                        originX: 'left',
+                        originY: 'top',
+                        angle: rotDeg
+                    });
                 }
-                if (rotateMatch) {
-                    angle = parseFloat(rotateMatch[1]);
-                }
                 
-                const child = g.children[0];
-                if (!child) return;
-                
-                const idStr = child.getAttribute('id');
-                if (!idStr || !idStr.startsWith('obj_')) return;
-                
-                const idx = parseInt(idStr.replace('obj_', ''));
-                const targetObj = objs[idx];
-                
-                if (targetObj) {
-                    // Position is bin origin + translation
-                    const targetLeft = originX + tx;
-                    const targetTop = originY + ty;
-                    
-                    targetObj.set({ angle: angle });
-                    if (targetObj.type === 'polygon') {
-                        targetObj.setPositionByOrigin(new fabric.Point(targetLeft, targetTop), 'left', 'top');
-                    } else {
-                        targetObj.set({ left: targetLeft, top: targetTop, originX: 'left', originY: 'top' });
-                    }
-                    targetObj.setCoords();
-                    targetObj.setCoords();
-                }
+                targetObj.setCoords();
             });
-            
+
             fabricCanvas.requestRenderAll();
         }
         function showSuccessToast(msg) {
