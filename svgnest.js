@@ -253,6 +253,8 @@
 
 				// seed with decreasing area
 				adam.sort(function(a, b){
+					var pa = a.priority || 0, pb = b.priority || 0;
+					if(pa !== pb){ return pb - pa; }
 					return Math.abs(GeometryUtil.polygonArea(b)) - Math.abs(GeometryUtil.polygonArea(a));
 				});
 				
@@ -540,7 +542,9 @@
 				
 				// todo: warn user if poly could not be processed and is excluded from the nest
 				if(poly && poly.length > 2 && Math.abs(GeometryUtil.polygonArea(poly)) > config.curveTolerance*config.curveTolerance){
-					poly.source = i;					
+					poly.source = i;
+					poly.norot = !!(paths[i].getAttribute && paths[i].getAttribute('data-norot') === '1');
+					poly.priority = parseInt(paths[i].getAttribute && paths[i].getAttribute('data-priority')) || 0;
 					polygons.push(poly);
 				}
 			}
@@ -773,7 +777,7 @@
 	
 	// returns a random angle of insertion
 	GeneticAlgorithm.prototype.randomAngle = function(part){
-		
+		if(part.norot){ return 0; }
 		var angleList = [];
 		for(var i=0; i<Math.max(this.config.rotations,1); i++){
 			angleList.push(i*(360/this.config.rotations));
@@ -823,6 +827,11 @@
 			if(rand < 0.01*this.config.mutationRate){
 				clone.rotation[i] = this.randomAngle(clone.placement[i]);
 			}
+		}
+		
+		// enforce rotation locks after crossover/mutation
+		for(i=0; i<clone.placement.length; i++){
+			if(clone.placement[i].norot){ clone.rotation[i] = 0; }
 		}
 		
 		return clone;

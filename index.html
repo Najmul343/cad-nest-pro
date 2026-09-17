@@ -3,7 +3,7 @@
 <head>
 	<meta charset="utf-8">
 	<title>Deepnest CAD — Web</title>
-	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 	<link rel="stylesheet" href="style.css">
 	<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23ff9a3c' d='M12 2l8.66 5v10L12 22l-8.66-5V7z'/%3E%3C/svg%3E">
 </head>
@@ -22,13 +22,17 @@
 				<svg viewBox="0 0 24 24"><path d="M12 3v10m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
 				<span>Import</span>
 			</button>
-			<button id="btnSample" class="tbtn" title="Load the sample parts file">
+			<button id="btnSample" class="tbtn" title="Load the sample job">
 				<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 4v3M12 17v3M4 12h3M17 12h3M6.3 6.3l2.2 2.2M15.5 15.5l2.2 2.2M17.7 6.3l-2.2 2.2M8.5 15.5l-2.2 2.2" stroke="currentColor" stroke-width="1.6"/></svg>
 				<span>Sample</span>
 			</button>
-			<button id="btnExport" class="tbtn" title="Export nesting result as SVG" disabled>
-				<svg viewBox="0 0 24 24"><path d="M12 13V3m0 0L8 7m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-				<span>Export</span>
+			<button id="btnSaveJob" class="tbtn" title="Save job as project file (.json)">
+				<svg viewBox="0 0 24 24"><path d="M5 3h11l5 5v11a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2zM8 3v5h7V3M7 21v-7h10v7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+				<span>Save</span>
+			</button>
+			<button id="btnLoadJob" class="tbtn" title="Open a saved job (.json)">
+				<svg viewBox="0 0 24 24"><path d="M13 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V10zM13 3v7h7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+				<span>Open</span>
 			</button>
 		</div>
 
@@ -38,6 +42,10 @@
 		</div>
 
 		<div class="toolgroup sep">
+			<button id="btnOptimize" class="tbtn smart" title="Smart Sheet Optimizer — analyze the job and pick the best stock size">
+				<svg viewBox="0 0 24 24"><path d="M12 2l1.8 5.6L19 6l-3.4 4.4L20 13l-5.7.4L13 19l-2.3-5.2L5 14l4-3.6L6 6l5 1.6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+				<span>Optimize</span>
+			</button>
 			<button id="btnStart" class="tbtn primary" title="Start nesting on the active sheet (improvements stream in live)">
 				<svg viewBox="0 0 24 24"><path d="M7 4.5l12 7.5-12 7.5z" fill="currentColor"/></svg>
 				<span>Nest</span>
@@ -50,9 +58,25 @@
 				<svg viewBox="0 0 24 24"><path d="M4 20h16M6 16l10.5-10.5a2.1 2.1 0 013 3L9 19l-4 1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
 				<span>Edit</span>
 			</button>
+			<button id="btnExport" class="tbtn" title="Export nesting result as SVG" disabled>
+				<svg viewBox="0 0 24 24"><path d="M12 13V3m0 0L8 7m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+				<span>Export</span>
+			</button>
+			<button id="btnReport" class="tbtn" title="Generate nest report (HTML + CSV)" disabled>
+				<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M9 13h6M9 17h6M9 9h2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+				<span>Report</span>
+			</button>
 		</div>
 
 		<div class="spacer"></div>
+
+		<div id="jobChips" class="jobchips">
+			<span class="chip" id="chipParts" title="Total parts to nest">–</span>
+			<span class="chip" id="chipSheets" title="Sheets used / estimated">–</span>
+			<span class="chip accent" id="chipCost" title="Estimated job cost">–</span>
+		</div>
+
+		<button id="btnHelp" class="tbtn icon" title="Keyboard shortcuts (?)"><svg viewBox="0 0 24 24"><path d="M9.5 9a2.6 2.6 0 115.1.8c-.4 1.3-1.9 1.7-2.6 2.8-.2.4-.3.8-.3 1.4M12 17.5v.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="9.2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
 
 		<div class="toolgroup">
 			<label class="snaptoggle" title="Snap cursor & drags to grid (G)"><input id="chkSnap" type="checkbox" checked> SNAP</label>
@@ -63,6 +87,9 @@
 			<span id="zoomLabel" class="zoomlabel">100%</span>
 			<button id="btnZoomIn" class="tbtn icon" title="Zoom in (+)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
 		</div>
+
+		<button class="tbtn icon paneltoggle" data-panel="left" title="Toggle parts panel"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+		<button class="tbtn icon paneltoggle" data-panel="right" title="Toggle properties panel"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M15 5v14" stroke="currentColor" stroke-width="1.7"/></svg></button>
 	</header>
 
 	<!-- ============ MAIN ============ -->
@@ -73,7 +100,7 @@
 			<button class="railbtn active" data-tool="select" title="Select / Move (V) — drag parts, marquee on empty space">
 				<svg viewBox="0 0 24 24"><path d="M5 3l14 8-6.5 1.5L15 19l-3 1.3-2.5-6.5L5 17z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
 			</button>
-			<button class="railbtn" data-tool="measure" title="Measure distance (M) — click two points">
+			<button class="railbtn" data-tool="measure" title="Measure distance (M) — tap two points">
 				<svg viewBox="0 0 24 24"><path d="M3 21L21 3M3 21l4-1-3-3zM9 15l2 2M12 12l2 2M15 9l2 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
 			</button>
 			<button class="railbtn" data-tool="rect" title="Draw rectangle part (R)">
@@ -82,7 +109,7 @@
 			<button class="railbtn" data-tool="circle" title="Draw circle part (C)">
 				<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
 			</button>
-			<button class="railbtn" data-tool="poly" title="Draw polygon part (P) — click vertices, Enter/double-click to close, Esc cancels">
+			<button class="railbtn" data-tool="poly" title="Draw polygon part (P) — tap vertices, Enter/double-tap first point to close">
 				<svg viewBox="0 0 24 24"><path d="M12 3l8 6-3 10H7L4 9z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
 			</button>
 			<div class="railsep"></div>
@@ -108,7 +135,7 @@
 		</nav>
 
 		<!-- left: parts -->
-		<aside id="left">
+		<aside id="left" class="panelcol">
 			<section class="panel grow">
 				<h2><svg viewBox="0 0 24 24" width="13" height="13"><path d="M12 2l8.66 5v10L12 22l-8.66-5V7z" fill="none" stroke="currentColor" stroke-width="2"/></svg> PARTS <span id="partCount" class="badge">0</span></h2>
 				<ul id="partList" class="partlist"></ul>
@@ -131,13 +158,17 @@
 							<g id="grid"></g>
 							<rect id="sheetRect" fill="none" visibility="hidden"></rect>
 							<g id="content"></g>
+							<g id="measureG" style="visibility:hidden"></g>
 							<g id="overlay"></g>
 						</g>
 					</svg>
+					<div id="polyBar" class="hidden"><span>Drawing polygon — tap vertices</span><button id="polyClose" class="mini">✓ Close</button><button id="polyCancel" class="mini danger">Cancel</button></div>
 					<div id="crosshairV" class="crosshair hidden"></div>
 					<div id="crosshairH" class="crosshair hidden"></div>
 					<div id="viewBadge" class="viewbadge">EDIT</div>
 					<div id="dropHint" class="hidden">Drop SVG / DXF files to import</div>
+					<button id="drawerLeft" class="draweredge left" title="Parts">‹</button>
+					<button id="drawerRight" class="draweredge right" title="Properties">›</button>
 				</div>
 			</div>
 			<!-- simulation + history bar -->
@@ -154,8 +185,22 @@
 			</div>
 		</section>
 
-		<!-- right: properties / sheets / params / status -->
-		<aside id="right">
+		<!-- right: job / selection / sheets / material / params / status -->
+		<aside id="right" class="panelcol">
+			<section class="panel">
+				<h2 class="collapsible" data-target="jobStats"><svg viewBox="0 0 24 24" width="13" height="13"><path d="M4 19h16M4 15l4-4 3 3 5-6 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> JOB &amp; COST <span class="caret">▾</span></h2>
+				<div id="jobStats" class="stats slim">
+					<div class="stat"><span>Parts</span><b id="jbParts">0</b></div>
+					<div class="stat"><span>Part area</span><b id="jbArea">–</b></div>
+					<div class="stat"><span>Cut length</span><b id="jbCut">–</b></div>
+					<div class="stat"><span>Pierces</span><b id="jbPierce">–</b></div>
+					<div class="stat"><span>Est. time</span><b id="jbTime">–</b></div>
+					<div class="stat"><span>Sheets</span><b id="jbSheets">–</b></div>
+					<div class="stat"><span>Material</span><b id="jbMat">–</b></div>
+					<div class="stat"><span>Cost / part</span><b id="jbCost" class="hot">–</b></div>
+				</div>
+			</section>
+
 			<section class="panel" id="selPanel" style="display:none">
 				<h2><svg viewBox="0 0 24 24" width="13" height="13"><path d="M5 3l14 8-6.5 1.5L15 19l-3 1.3-2.5-6.5L5 17z" fill="none" stroke="currentColor" stroke-width="2"/></svg> SELECTION</h2>
 				<div class="grid2">
@@ -166,6 +211,10 @@
 					<label>Rotation ° <input id="selRot" type="number" step="any" value="0"></label>
 					<label>Width <input id="selW" type="number" step="any"></label>
 					<label>Height <input id="selH" type="number" step="any"></label>
+					<label class="check"><input id="selLockRot" type="checkbox"> Lock rotation (grain)</label>
+					<label class="wide">Nest priority
+						<select id="selPriority"><option value="0" selected>Normal</option><option value="1">High — place first</option></select>
+					</label>
 				</div>
 				<div class="rowbtns">
 					<button id="selFlipH" class="mini">Flip H</button>
@@ -177,51 +226,92 @@
 			</section>
 
 			<section class="panel">
-				<h2><svg viewBox="0 0 24 24" width="13" height="13"><rect x="3" y="6" width="18" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg> SHEETS <span id="sheetCount" class="badge">1</span></h2>
-				<ul id="sheetList" class="sheetlist"></ul>
-				<div class="rowbtns">
-					<button id="sheetAdd" class="mini">+ Add sheet</button>
-					<button id="sheetDup" class="mini">Duplicate</button>
-					<button id="sheetDel" class="mini danger">Delete</button>
-				</div>
-				<div class="grid2">
-					<label>Width <input id="sheetW" type="number" min="1" step="any" value="600"></label>
-					<label>Height <input id="sheetH" type="number" min="1" step="any" value="400"></label>
-					<label class="wide">Units
-						<select id="sheetUnit">
-							<option value="px" selected>px / engine units</option>
-							<option value="in">inch (×72)</option>
-							<option value="mm">mm (×72/25.4)</option>
+				<h2 class="collapsible" data-target="sheetBody"><svg viewBox="0 0 24 24" width="13" height="13"><rect x="3" y="6" width="18" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg> SHEETS <span id="sheetCount" class="badge">1</span><span class="caret">▾</span></h2>
+				<div id="sheetBody">
+					<label class="presetrow">Stock preset
+						<select id="sheetPreset">
+							<option value="">custom…</option>
+							<optgroup label="mm">
+								<option value="mm:400:300">400 × 300 mm</option>
+								<option value="mm:600:400">600 × 400 mm</option>
+								<option value="mm:1000:500">1000 × 500 mm</option>
+								<option value="mm:1220:610">1220 × 610 mm</option>
+								<option value="mm:1220:2440">1220 × 2440 mm (4×8')</option>
+								<option value="mm:1250:2500">1250 × 2500 mm</option>
+								<option value="mm:1500:3000">1500 × 3000 mm</option>
+								<option value="mm:2000:1000">2000 × 1000 mm</option>
+							</optgroup>
+							<optgroup label="inch">
+								<option value="in:24:24">24 × 24 in</option>
+								<option value="in:24:48">24 × 48 in</option>
+								<option value="in:48:48">48 × 48 in</option>
+								<option value="in:48:96">48 × 96 in (4×8')</option>
+								<option value="in:60:120">60 × 120 in</option>
+							</optgroup>
 						</select>
 					</label>
+					<ul id="sheetList" class="sheetlist"></ul>
+					<div class="rowbtns">
+						<button id="sheetAdd" class="mini">+ Add sheet</button>
+						<button id="sheetDup" class="mini">Duplicate</button>
+						<button id="sheetDel" class="mini danger">Delete</button>
+					</div>
+					<div class="grid2">
+						<label>Width <input id="sheetW" type="number" min="1" step="any" value="600"></label>
+						<label>Height <input id="sheetH" type="number" min="1" step="any" value="400"></label>
+						<label class="wide">Units
+							<select id="sheetUnit">
+								<option value="px" selected>px / engine units</option>
+								<option value="in">inch (×72)</option>
+								<option value="mm">mm (×72/25.4)</option>
+							</select>
+						</label>
+					</div>
+					<div class="hint" id="sheetReadout">sheet: 600.0 × 400.0 u</div>
 				</div>
-				<div class="hint" id="sheetReadout">sheet: 600.0 × 400.0 u</div>
 			</section>
 
 			<section class="panel">
-				<h2><svg viewBox="0 0 24 24" width="13" height="13"><path d="M6 4v6m0 4v6M12 4v10m0 4v2M18 4v2m0 4v10M3 10h6M9 16h6M15 6h6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg> NESTING PARAMETERS</h2>
-				<div class="grid2">
-					<label class="wide">Part spacing
-						<input id="cfgSpacing" type="number" min="0" step="any" value="2">
-					</label>
-					<label>Rotations
-						<select id="cfgRotations">
-							<option>1</option><option>2</option><option selected>4</option><option>8</option><option>16</option>
-						</select>
-					</label>
-					<label>Population
-						<input id="cfgPopulation" type="number" min="3" max="100" value="10">
-					</label>
-					<label>Mutation %
-						<input id="cfgMutation" type="number" min="1" max="100" value="10">
-					</label>
-					<label>Curve tol.
-						<input id="cfgCurveTol" type="number" min="0" step="any" value="0.3">
-					</label>
-					<label class="check"><input id="cfgUseHoles" type="checkbox"> Use part holes</label>
-					<label class="check"><input id="cfgExploreConcave" type="checkbox"> Explore concave</label>
+				<h2 class="collapsible" data-target="matBody"><svg viewBox="0 0 24 24" width="13" height="13"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9m0-9L4 7.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg> MATERIAL &amp; COSTING <span class="caret">▾</span></h2>
+				<div id="matBody">
+					<div class="grid2">
+						<label class="wide">Material <input id="matName" type="text" value="Mild steel"></label>
+						<label>Thickness mm <input id="matThick" type="number" min="0" step="any" value="3"></label>
+						<label>Density g/cm³ <input id="matDensity" type="number" min="0" step="any" value="7.85"></label>
+						<label>Price / sheet <input id="matPrice" type="number" min="0" step="any" value="60"></label>
+						<label>Machine / min <input id="matRate" type="number" min="0" step="any" value="0.9"></label>
+						<label class="wide">Cut speed mm/min <input id="matSpeed" type="number" min="1" step="any" value="2500"></label>
+					</div>
+					<div class="hint">costs are estimates for quoting — tune to your shop rates</div>
 				</div>
-				<div class="hint">spacing / sizes in engine units · 72 u = 1 inch · DXF import: <select id="dxfUnit" class="inlineselect"><option value="mm" selected>mm</option><option value="in">inch</option></select></div>
+			</section>
+
+			<section class="panel">
+				<h2 class="collapsible" data-target="paramBody"><svg viewBox="0 0 24 24" width="13" height="13"><path d="M6 4v6m0 4v6M12 4v10m0 4v2M18 4v2m0 4v10M3 10h6M9 16h6M15 6h6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg> NESTING PARAMETERS <span class="caret">▾</span></h2>
+				<div id="paramBody">
+					<div class="grid2">
+						<label class="wide">Part spacing / kerf web
+							<input id="cfgSpacing" type="number" min="0" step="any" value="2">
+						</label>
+						<label>Rotations
+							<select id="cfgRotations">
+								<option>1</option><option>2</option><option selected>4</option><option>8</option><option>16</option>
+							</select>
+						</label>
+						<label>Population
+							<input id="cfgPopulation" type="number" min="3" max="100" value="10">
+						</label>
+						<label>Mutation %
+							<input id="cfgMutation" type="number" min="1" max="100" value="10">
+						</label>
+						<label>Curve tol.
+							<input id="cfgCurveTol" type="number" min="0" step="any" value="0.3">
+						</label>
+						<label class="check"><input id="cfgUseHoles" type="checkbox"> Nest inside part holes</label>
+						<label class="check"><input id="cfgExploreConcave" type="checkbox"> Explore concave regions</label>
+					</div>
+					<div class="hint" id="spacingHint">–</div>
+				</div>
 			</section>
 
 			<section class="panel grow">
@@ -232,6 +322,7 @@
 					<div class="stat"><span>Utilization</span><b id="statUtil">–</b></div>
 					<div class="stat"><span>Parts placed</span><b id="statPlaced">–</b></div>
 					<div class="stat"><span>Improvements</span><b id="statGen">0</b></div>
+					<div class="stat wide"><span>Best remnant per sheet</span><b id="statRemnant">–</b></div>
 				</div>
 			</section>
 		</aside>
@@ -253,7 +344,64 @@
 	</footer>
 </div>
 
+<!-- ============ SMART OPTIMIZER MODAL ============ -->
+<div id="optimizerModal" class="modal hidden">
+	<div class="modalbox">
+		<div class="modalhead"><h3>✨ Smart Sheet Optimizer</h3><button class="modalclose" data-close>✕</button></div>
+		<div class="modalbody">
+			<p class="modalnote">Analyzes your parts with a fast bounding-box packer and ranks stock sizes by estimated waste. Pick a sheet, then nest.</p>
+			<div id="optimizerResults" class="optresults"></div>
+			<label class="check"><input id="optAutoNest" type="checkbox" checked> Start nesting after applying</label>
+		</div>
+		<div class="modalfoot">
+			<button id="optAutofit" class="mini">Auto-fit sheet to parts</button>
+			<span class="spacer"></span>
+			<button class="mini" data-close>Close</button>
+		</div>
+	</div>
+</div>
+
+<!-- ============ REPORT MODAL ============ -->
+<div id="reportModal" class="modal hidden">
+	<div class="modalbox wide">
+		<div class="modalhead"><h3>Nest Report</h3><button class="modalclose" data-close>✕</button></div>
+		<div class="modalbody" id="reportBody"></div>
+		<div class="modalfoot">
+			<button id="reportHtml" class="mini">Download HTML report</button>
+			<button id="reportCsv" class="mini">Download parts CSV</button>
+			<span class="spacer"></span>
+			<button class="mini" data-close>Close</button>
+		</div>
+	</div>
+</div>
+
+<!-- ============ HELP MODAL ============ -->
+<div id="helpModal" class="modal hidden">
+	<div class="modalbox">
+		<div class="modalhead"><h3>Keyboard shortcuts</h3><button class="modalclose" data-close>✕</button></div>
+		<div class="modalbody">
+			<table class="keys">
+				<tr><td>V / M / R / C / P</td><td>select · measure · rectangle · circle · polygon tools</td></tr>
+				<tr><td>Q / E</td><td>rotate selection ±90°</td></tr>
+				<tr><td>H / J</td><td>flip horizontal / vertical</td></tr>
+				<tr><td>arrows</td><td>nudge (Shift = ×5)</td></tr>
+				<tr><td>Ctrl+Z / Ctrl+Y</td><td>undo / redo</td></tr>
+				<tr><td>Ctrl+D</td><td>duplicate selection</td></tr>
+				<tr><td>Del</td><td>delete selection</td></tr>
+				<tr><td>F / + / −</td><td>fit view / zoom in / out</td></tr>
+				<tr><td>G</td><td>toggle grid snap</td></tr>
+				<tr><td>Enter (poly tool)</td><td>finish polygon</td></tr>
+				<tr><td>Esc</td><td>cancel / deselect / stop sim</td></tr>
+				<tr><td>Space / 2 fingers</td><td>pan · pinch to zoom</td></tr>
+			</table>
+		</div>
+	</div>
+</div>
+
+<div id="toasts"></div>
+
 <input id="fileInput" type="file" accept=".svg,.dxf,image/svg+xml" multiple hidden>
+<input id="jobInput" type="file" accept=".json" hidden>
 
 <!-- engine deps (order matters) -->
 <script src="util/pathsegpolyfill.js"></script>

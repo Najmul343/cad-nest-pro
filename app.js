@@ -16,12 +16,14 @@
 	const GRID = 10;       // snap grid in engine units
 
 	const state = {
-		parts: [],        // {id,name,els:[{el,poly,area}],qty,enabled,deleted,color,xf:{dx,dy,rot,s,fx,fy},c0:{x,y},bounds}
+		parts: [],        // {id,name,els:[{el,poly,area}],qty,enabled,deleted,color,xf:{dx,dy,rot,s,fx,fy},c0:{x,y},bounds,rotLock,priority}
 		sheets: [],       // {id,name,w,h,unit}
 		activeSheetId: null,
 		cfg: { spacing: 2, rotations: 4, populationSize: 10, mutationRate: 10, curveTolerance: 0.3, useHoles: false, exploreConcave: false },
+		material: { name: 'Mild steel', thickness: 3, density: 7.85, priceSheet: 60, machineRate: 0.9, cutSpeed: 2500 },
+		remnants: [],     // per-sheet remnant estimate from the last nest
 		mode: 'edit',     // 'edit' | 'nest'
-		tool: 'select',   // 'select' | 'measure' | 'rect' | 'circle'
+		tool: 'select',   // 'select' | 'measure' | 'rect' | 'circle' | 'poly'
 		snap: true,
 		selection: [],    // part ids, last = primary
 		running: false,
@@ -141,6 +143,7 @@
 		p.tpoly = tp;
 		p.bounds = polygonBoundsOf(tp);
 		p.tArea = p.els.reduce((s, m) => s + Math.abs(polyArea(m.poly.map(pt => xfPoint(p, pt)))), 0);
+		p.tOuterArea = Math.abs(polyArea(tp));
 	}
 
 	/* ================= import ================= */
@@ -208,6 +211,8 @@
 			els: members,
 			qty: 1,
 			deleted: false,
+			rotLock: false,
+			priority: 0,
 			color: nextColor(uidPart),
 			xf: { dx: 0, dy: 0, rot: 0, s: 1, fx: 1, fy: 1 }
 		};
@@ -231,6 +236,7 @@
 			renderPartList();
 			if (state.mode === 'edit') renderEditView();
 			fitView();
+			updateJobStats();
 			setStatus('Imported ' + parts.length + ' part(s) from "' + filename + '".');
 			return true;
 		} catch (err) {
@@ -634,6 +640,10 @@
 		$('selRot').value = Math.round(P.xf.rot * 10) / 10;
 		$('selW').value = Math.round(P.bounds.width * 10) / 10;
 		$('selH').value = Math.round(P.bounds.height * 10) / 10;
+		$('selLockRot').checked = !!P.rotLock;
+		$('selPriority').value = String(P.priority || 0);
+		$('selLockRot').disabled = sel.length > 1;
+		$('selPriority').disabled = sel.length > 1;
 		$('selInfo').textContent = 'area ' + fmt(P.tArea / 1e4, 2) + 'k u² · pos ' + fmt(P.bounds.x) + ',' + fmt(P.bounds.y) +
 			(sel.length > 1 ? ' · editing primary of ' + sel.length : '');
 	}
@@ -705,6 +715,7 @@
 			syncSelectionPanel();
 			fitSelectionIfOffscreen();
 		}
+		updateJobStats();
 	}
 	function fitSelectionIfOffscreen() {
 		// keep overlay accurate; no forced camera move
@@ -715,6 +726,20 @@
 	$('selFlipV').onclick = () => flipSel('v');
 	$('selDup').onclick = dupSel;
 	$('selDel').onclick = delSel;
+	$('selLockRot').addEventListener('change', () => {
+		const sel = selParts(); if (!sel.length) return;
+		pushUndo();
+		for (const P of sel) P.rotLock = $('selLockRot').checked;
+		setStatus(sel.length > 1
+			? sel.length + ' parts: rotation ' + ($('selLockRot').checked ? 'LOCKED (0° only during nesting)' : 'free (follows global rotations).')
+			: '"' + sel[0].name + '": rotation ' + ($('selLockRot').checked ? 'LOCKED (0° only during nesting)' : 'free (follows global rotations).'));
+	});
+	$('selPriority').addEventListener('change', () => {
+		const sel = selParts(); if (!sel.length) return;
+		pushUndo();
+		for (const P of sel) P.priority = parseInt($('selPriority').value, 10) || 0;
+		setStatus('Nest priority updated — high-priority parts are placed first.');
+	});
 	$('railFlipH').onclick = () => flipSel('h');
 	$('railFlipV').onclick = () => flipSel('v');
 	$('railRotL').onclick = () => rotSel(-90);
@@ -782,6 +807,7 @@
 		$('statusTool').textContent = 'TOOL: ' + t.toUpperCase();
 		measurePts = [];
 		cancelPolygon();
+		$('polyBar').classList.toggle('hidden', t !== 'poly');
 		if (state.mode === 'edit') renderOverlay();
 	}
 
@@ -824,7 +850,8 @@
 	}
 	document.querySelectorAll('.railbtn[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
 
-	viewport.addEventListener('mousedown', (ev) => {
+	function onDown(ev) {
+		if (ev.pointerType === 'mouse' && ev.button !== 0 && ev.button !== 1) return;
 		if (ev.button === 1 || ev.buttons === 4 || spaceHeld) { drag = { kind: 'pan', sx: ev.clientX, sy: ev.clientY, vx: view.x, vy: view.y }; return; }
 		if (ev.button !== 0) return;
 		const w = screenToWorld(ev.clientX, ev.clientY);
@@ -901,9 +928,9 @@
 		clearSelection();
 		renderPartList(); renderEditSelection(); renderOverlay(); syncSelectionPanel();
 		drag = { kind: 'marquee', x0: w.x, y0: w.y, add: ev.shiftKey, base: ev.shiftKey ? state.selection.slice() : [] };
-	});
+	}
 
-	window.addEventListener('mousemove', (ev) => {
+	function onMove(ev) {
 		// crosshair + coords
 		const r = canvas.getBoundingClientRect();
 		const inside = ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
@@ -971,9 +998,9 @@
 			}
 			overlay.appendChild(drag.tmp);
 		}
-	}, { passive: true });
+	}
 
-	window.addEventListener('mouseup', (ev) => {
+	function onUp(ev) {
 		if (!drag) return;
 		const d = drag; drag = null;
 		viewport.classList.remove('panning');
@@ -1013,6 +1040,61 @@
 			renderPartList(); renderEditView(); syncSelectionPanel();
 			setStatus('Created part "' + name + '".');
 		}
+	}
+
+	/* ---- unified pointer handling: mouse + touch + pen, with pinch zoom ---- */
+
+	const pointers = new Map();
+	let pinch = null;
+
+	viewport.addEventListener('pointerdown', (ev) => {
+		if (ev.pointerType === 'mouse' && ev.button !== 0 && ev.button !== 1) return;
+		pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+		if (pointers.size === 2) {
+			// two fingers → pinch zoom / two-finger pan; cancel any in-progress edit drag
+			overlay.querySelectorAll('.marquee').forEach(m => m.remove());
+			if (drag && (drag.kind === 'move' || drag.kind === 'scale' || drag.kind === 'rotate') && drag.orig) {
+				// revert uncommitted drags
+				for (const o of drag.orig) { o.P.xf.dx = o.dx; o.P.xf.dy = o.dy; refreshPartGeom(o.P); refreshPartDisplay(o.P); }
+			}
+			drag = null;
+			const pts = [...pointers.values()];
+			pinch = {
+				d0: Math.max(1, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)),
+				k0: view.k,
+				cx: (pts[0].x + pts[1].x) / 2, cy: (pts[0].y + pts[1].y) / 2,
+				vx: view.x, vy: view.y
+			};
+			return;
+		}
+		onDown(ev);
+	});
+	window.addEventListener('pointermove', (ev) => {
+		if (pointers.has(ev.pointerId)) pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+		if (pinch && pointers.size >= 2) {
+			const pts = [...pointers.values()];
+			const d = Math.max(1, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y));
+			const cx = (pts[0].x + pts[1].x) / 2, cy = (pts[0].y + pts[1].y) / 2;
+			const k2 = Math.max(0.005, Math.min(pinch.k0 * d / pinch.d0, 400));
+			const rect = canvas.getBoundingClientRect();
+			const omx = pinch.cx - rect.left, omy = pinch.cy - rect.top;
+			view.x = omx - (omx - pinch.vx) * (k2 / pinch.k0) + (cx - pinch.cx);
+			view.y = omy - (omy - pinch.vy) * (k2 / pinch.k0) + (cy - pinch.cy);
+			view.k = k2;
+			applyView();
+			return;
+		}
+		onMove(ev);
+	}, { passive: true });
+	window.addEventListener('pointerup', (ev) => {
+		pointers.delete(ev.pointerId);
+		if (pinch) { if (pointers.size < 2) { pinch = null; drag = null; viewport.classList.remove('panning'); } return; }
+		onUp(ev);
+	});
+	window.addEventListener('pointercancel', (ev) => {
+		pointers.delete(ev.pointerId);
+		pinch = null; drag = null;
+		viewport.classList.remove('panning');
 	});
 
 	function mk(tag, attrs) {
@@ -1113,18 +1195,56 @@
 		s += '<rect id="bin" x="0" y="0" width="' + W + '" height="' + H + '"/>';
 		const ser = new XMLSerializer();
 		let total = 0;
+		const seq = []; // cleaned-DOM mapping: one entry per top-level element after the bin
 		for (const p of liveParts()) {
-			if (!p.enabled !== false && p.qty < 1) continue;
+			if (p.qty < 1) continue;
 			for (let q = 0; q < p.qty; q++) {
 				// wrapper group carries the user's CAD transform; engine bakes it on import
 				s += '<g transform="' + xfString(p) + '">';
-				for (const m of p.els) s += ser.serializeToString(m.el.cloneNode(true));
+				for (let mi = 0; mi < p.els.length; mi++) {
+					s += ser.serializeToString(p.els[mi].el.cloneNode(true));
+					seq.push({ partId: p.id, isOuter: mi === 0 });
+				}
 				s += '</g>';
 				total++;
 			}
 		}
 		s += '</svg>';
-		return { str: s, W: W, H: H, total: total };
+		return { str: s, W: W, H: H, total: total, seq: seq };
+	}
+
+	// tag cleaned job elements with per-part metadata (rotation lock, priority)
+	// so the patched engine can honor them. Elements are matched by geometry
+	// (first vertex + area of the transformed outer polygon) — robust against
+	// element rewrites/reordering inside the parser's clean pass.
+	function tagJobMeta(svgEl, seq) {
+		const byId = new Map(liveParts().map(p => [p.id, p]));
+		const need = seq.filter(s => {
+			const p = byId.get(s.partId);
+			return s.isOuter && p && (p.rotLock || p.priority);
+		});
+		if (!need.length) return true;
+		const kids = Array.from(svgEl.children);
+		let tagged = 0;
+		for (const s of need) {
+			const p = byId.get(s.partId);
+			for (const k of kids) {
+				if (!k.getAttribute || k.getAttribute('data-dn-tag')) continue;
+				let poly = null;
+				try { poly = SvgParser.polygonify(k); } catch (e) { poly = null; }
+				if (!poly || poly.length < 3) continue;
+				const areaOk = Math.abs(Math.abs(GeometryUtil.polygonArea(poly)) - p.tOuterArea) < Math.max(0.5, p.tOuterArea * 0.002);
+				const ptOk = Math.abs(poly[0].x - p.tpoly[0].x) < 0.75 && Math.abs(poly[0].y - p.tpoly[0].y) < 0.75;
+				if (!areaOk || !ptOk) continue;
+				if (p.rotLock) k.setAttribute('data-norot', '1');
+				if (p.priority) k.setAttribute('data-priority', String(p.priority));
+				k.setAttribute('data-dn-tag', '1');
+				tagged++;
+				break;
+			}
+		}
+		if (tagged < need.length) console.warn('meta tagging partial:', tagged, '/', need.length);
+		return tagged === need.length;
 	}
 
 	function readCfg() {
@@ -1163,6 +1283,7 @@
 		let svgEl;
 		try { svgEl = SvgNest.parsesvg(job.str); }
 		catch (err) { console.error(err); setStatus('Failed to build nesting job: ' + err.message); return; }
+		tagJobMeta(svgEl, job.seq);
 		const bin = svgEl.querySelector('#bin');
 		if (!bin) { setStatus('Internal error: bin missing after parse.'); return; }
 		SvgNest.setbin(bin);
@@ -1297,6 +1418,14 @@
 				content.appendChild(n);
 			}
 		}
+
+		// per-sheet remnant estimate (usable offcut) + job stats refresh
+		try {
+			computeRemnants();
+			const r = state.remnants[idx] || state.remnants[0];
+			$('statRemnant').textContent = r ? fmt(r.side) + ' × ' + fmt(r.side) + ' u  (' + fmt(r.sideMm) + ' mm)' : '–';
+		} catch (e) { console.warn('remnant calc failed', e); }
+		updateJobStats();
 	}
 
 	function updateRunStats() {
@@ -1566,6 +1695,447 @@
 
 	window.addEventListener('resize', () => applyView());
 
+	/* ============================================================
+	   ENTERPRISE: material & costing, job stats, smart optimizer,
+	   remnant estimation, job save/load, report, toasts & modals
+	   ============================================================ */
+
+	const U2MM = 72 / 25.4; // 1 engine unit in mm
+
+	function toast(msg) {
+		const box = $('toasts');
+		const t = document.createElement('div');
+		t.className = 'toast';
+		t.textContent = msg;
+		box.appendChild(t);
+		setTimeout(() => t.remove(), 4200);
+	}
+
+	function fmtMoney(v) { return '$' + (Math.round(v * 100) / 100).toFixed(2); }
+	function fmtLen(mm) { return mm >= 1000 ? (mm / 1000).toFixed(2) + ' m' : Math.round(mm) + ' mm'; }
+
+	function partPerimeter(p) {
+		let L = 0;
+		for (const m of p.els) {
+			const poly = m.poly.map(pt => xfPoint(p, pt));
+			for (let i = 0; i < poly.length; i++) {
+				const j = (i + 1) % poly.length;
+				L += Math.hypot(poly[j].x - poly[i].x, poly[j].y - poly[i].y);
+			}
+		}
+		return L;
+	}
+
+	function computeJobStats() {
+		const parts = liveParts();
+		const sh = activeSheet(), f = unitFactor(sh);
+		const sheetWU = sh.w * f, sheetHU = sh.h * f;
+		const sheetAreaU = sheetWU * sheetHU;
+		let qty = 0, area = 0, cutlen = 0, pierces = 0, weightKg = 0;
+		for (const p of parts) {
+			qty += p.qty;
+			area += p.tArea * p.qty;
+			cutlen += partPerimeter(p) * p.qty;
+			pierces += p.els.length * p.qty;
+			weightKg += (p.tArea * p.qty) * U2MM * U2MM * state.material.thickness * state.material.density / 1e6;
+		}
+		const timeMin = (cutlen * U2MM) / Math.max(1, state.material.cutSpeed);
+		const last = state.history[state.history.length - 1];
+		const sheets = last ? last.sheets.length : Math.max(1, Math.ceil(area / (sheetAreaU * 0.85)));
+		const matCost = sheets * state.material.priceSheet;
+		const machCost = timeMin * state.material.machineRate;
+		const waste = Math.min(1, Math.max(0, 1 - area / (sheets * sheetAreaU)));
+		return {
+			qty, area, cutlen, pierces, weightKg, timeMin, sheets, sheetsUsed: last ? last.sheets.length : 0,
+			sheetWU, sheetHU, sheetAreaU, matCost, machCost, total: matCost + machCost, waste,
+			costPerPart: qty ? (matCost + machCost) / qty : 0
+		};
+	}
+
+	function updateJobStats() {
+		const s = computeJobStats();
+		$('jbParts').textContent = s.qty;
+		$('jbArea').textContent = s.area >= 1e6 ? fmt(s.area / 1e6, 2) + 'M u²' : fmt(s.area / 1e3, 1) + 'k u²';
+		$('jbCut').textContent = fmtLen(s.cutlen * U2MM);
+		$('jbPierce').textContent = s.pierces;
+		$('jbTime').textContent = s.timeMin >= 60 ? fmt(s.timeMin / 60, 1) + ' h' : fmt(s.timeMin) + ' min';
+		$('jbSheets').textContent = s.sheetsUsed ? s.sheets + ' (nested)' : '~' + s.sheets + ' est.';
+		$('jbMat').textContent = state.material.name + ' ' + state.material.thickness + 'mm · ' + fmt(s.weightKg, 1) + ' kg';
+		$('jbCost').textContent = fmtMoney(s.costPerPart);
+		$('chipParts').textContent = s.qty + ' parts · ' + fmtLen(s.cutlen * U2MM);
+		$('chipSheets').textContent = s.sheets + ' sheets · ' + Math.round((1 - s.waste) * 100) + '% fill';
+		$('chipCost').textContent = fmtMoney(s.total) + ' · ' + fmtMoney(s.costPerPart) + '/part';
+		return s;
+	}
+
+	function readMaterial() {
+		state.material = {
+			name: $('matName').value || 'Material',
+			thickness: Math.max(0, parseFloat($('matThick').value) || 0),
+			density: Math.max(0, parseFloat($('matDensity').value) || 0),
+			priceSheet: Math.max(0, parseFloat($('matPrice').value) || 0),
+			machineRate: Math.max(0, parseFloat($('matRate').value) || 0),
+			cutSpeed: Math.max(1, parseFloat($('matSpeed').value) || 1)
+		};
+	}
+	['matName', 'matThick', 'matDensity', 'matPrice', 'matRate', 'matSpeed'].forEach(id =>
+		$(id).addEventListener('input', () => { readMaterial(); updateJobStats(); }));
+
+	function updateSpacingHint() {
+		const v = parseFloat($('cfgSpacing').value) || 0;
+		$('spacingHint').textContent = '= ' + fmt(v * U2MM, 2) + ' mm  ·  ' + fmt(v / ENGINE_UPI, 3) + ' in (per part edge)';
+	}
+	$('cfgSpacing').addEventListener('input', updateSpacingHint);
+
+	/* ---- remnant (offcut) estimation via occupancy grid + maximal free square ---- */
+
+	function computeRemnants() {
+		state.remnants = [];
+		const snap = state.history[state.histIndex >= 0 ? state.histIndex : state.history.length - 1];
+		if (!snap) return;
+		const sh = activeSheet(), f = unitFactor(sh);
+		const W = sh.w * f, H = sh.h * f;
+		const mg = document.getElementById('measureG');
+		for (let si = 0; si < snap.sheets.length; si++) {
+			mg.innerHTML = '';
+			for (const child of Array.from(snap.sheets[si].childNodes)) {
+				if (child.nodeType !== 1) continue;
+				const n = document.importNode(child, true);
+				if (n.getAttribute('class') !== 'bin') n.classList.add('nestpart');
+				mg.appendChild(n);
+			}
+			state.remnants.push(remnantFromGrid(W, H));
+		}
+		mg.innerHTML = '';
+	}
+
+	function remnantFromGrid(W, H) {
+		const cols = 64, cw = W / cols;
+		const rows = Math.max(8, Math.ceil(H / cw));
+		const chh = cw; // exactly square cells so the DP square side is physical
+		const grid = new Uint8Array(cols * rows);
+		const worldInv = world.getCTM().inverse();
+		const svgpt = canvas.createSVGPoint();
+		document.querySelectorAll('#measureG .nestpart *').forEach(sh => {
+			try {
+				const bb = sh.getBBox();
+				if (!bb.width && !bb.height) return;
+				const m = worldInv.multiply(sh.getScreenCTM());
+				const xs = [], ys = [];
+				[[bb.x, bb.y], [bb.x + bb.width, bb.y], [bb.x, bb.y + bb.height], [bb.x + bb.width, bb.y + bb.height]].forEach(c => {
+					svgpt.x = c[0]; svgpt.y = c[1];
+					const w = svgpt.matrixTransform(m);
+					xs.push(w.x); ys.push(w.y);
+				});
+				const x0 = Math.max(0, Math.floor(Math.min(...xs) / cw)), x1 = Math.min(cols - 1, Math.floor(Math.max(...xs) / cw));
+				const y0 = Math.max(0, Math.floor(Math.min(...ys) / chh)), y1 = Math.min(rows - 1, Math.floor(Math.max(...ys) / chh));
+				for (let r = y0; r <= y1; r++) for (let c = x0; c <= x1; c++) grid[r * cols + c] = 1;
+			} catch (e) { /* skip */ }
+		});
+		// maximal free square (DP)
+		const dp = new Int32Array(cols * rows);
+		let best = 0, bx = 0, by = 0;
+		for (let r = 0; r < rows; r++) {
+			for (let c = 0; c < cols; c++) {
+				if (grid[r * cols + c]) { dp[r * cols + c] = 0; continue; }
+				dp[r * cols + c] = 1 + Math.min(
+					r > 0 ? dp[(r - 1) * cols + c] : 0,
+					c > 0 ? dp[r * cols + c - 1] : 0,
+					(r > 0 && c > 0) ? dp[(r - 1) * cols + c - 1] : 0
+				);
+				if (dp[r * cols + c] > best) { best = dp[r * cols + c]; bx = c; by = r; }
+			}
+		}
+		const side = best * cw;
+		return { side: side, sideMm: side * U2MM, x: bx * cw, y: by * chh };
+	}
+
+	/* ---- Smart Sheet Optimizer ---- */
+
+	const SHEET_PRESETS = [
+		{ n: '400 × 300 mm', u: 'mm', w: 400, h: 300 },
+		{ n: '600 × 400 mm', u: 'mm', w: 600, h: 400 },
+		{ n: '1000 × 500 mm', u: 'mm', w: 1000, h: 500 },
+		{ n: '1220 × 610 mm', u: 'mm', w: 1220, h: 610 },
+		{ n: '1220 × 2440 mm', u: 'mm', w: 1220, h: 2440 },
+		{ n: '1250 × 2500 mm', u: 'mm', w: 1250, h: 2500 },
+		{ n: '1500 × 3000 mm', u: 'mm', w: 1500, h: 3000 },
+		{ n: '24 × 48 in', u: 'in', w: 24, h: 48 },
+		{ n: '48 × 96 in', u: 'in', w: 48, h: 96 },
+		{ n: '60 × 120 in', u: 'in', w: 60, h: 120 }
+	];
+
+	// fast bounding-box shelf packer → {sheets, util}
+	function estimatePacking(sheetWU, sheetHU) {
+		const items = [];
+		for (const p of liveParts()) {
+			for (let q = 0; q < p.qty; q++) items.push({ w: p.bounds.width, h: p.bounds.height, a: p.tArea });
+		}
+		if (!items.length) return { sheets: 0, util: 0 };
+		const totalA = items.reduce((s, it) => s + it.a, 0);
+		items.sort((a, b) => Math.max(b.w, b.h) - Math.max(a.w, a.h));
+		let sheets = 0;
+		let placed = 0;
+		while (placed < items.length && sheets < 500) {
+			sheets++;
+			let x = 0, y = 0, rowH = 0;
+			for (let i = 0; i < items.length; i++) {
+				const it = items[i];
+				if (!it) continue;
+				let w = it.w, h = it.h;
+				if (w > sheetWU - x && h <= sheetWU - x) { const t = w; w = h; h = t; }
+				if (w > sheetWU || y + h > sheetHU) continue;
+				if (x + w > sheetWU) { x = 0; y += rowH; rowH = 0; }
+				if (y + h > sheetHU) continue;
+				x += w; rowH = Math.max(rowH, h);
+				items[i] = null; placed++;
+			}
+			items.sort((a, b) => (a ? Math.max(a.w, a.h) : -1) - (b ? Math.max(b.w, b.h) : -1)).reverse();
+		}
+		return { sheets: sheets, util: totalA / (sheets * sheetWU * sheetHU) };
+	}
+
+	function largestPartFits(wU, hU) {
+		return liveParts().every(p =>
+			(p.bounds.width <= wU && p.bounds.height <= hU) ||
+			(p.bounds.height <= wU && p.bounds.width <= hU));
+	}
+
+	function openOptimizer() {
+		if (!liveParts().some(p => p.qty > 0)) { toast('Add parts and set quantities first.'); return; }
+		readMaterial();
+		const rows = [];
+		for (const pr of SHEET_PRESETS) {
+			const pf = pr.u === 'in' ? ENGINE_UPI : ENGINE_UPI / 25.4;
+			const wU = pr.w * pf, hU = pr.h * pf;
+			const fits = largestPartFits(wU, hU);
+			const est = estimatePacking(wU, hU);
+			rows.push({ pr: pr, wU: wU, hU: hU, fits: fits, est: est });
+		}
+		rows.sort((a, b) => (b.fits - a.fits) || (b.est.util - a.est.util));
+		const best = rows.find(r => r.fits);
+		const box = $('optimizerResults');
+		box.innerHTML =
+			'<div class="optrow head"><span>Stock size</span><span>Est. sheets</span><span>Est. fill</span><span>Largest part</span><span></span></div>' +
+			rows.map((r, i) =>
+				'<div class="optrow' + (r === best ? ' best' : '') + '">' +
+				'<span class="oname">' + r.pr.n + (r === best ? ' ★' : '') + '</span>' +
+				'<span>' + (r.fits ? '~' + r.est.sheets : '–') + '</span>' +
+				'<span>' + (r.fits ? Math.round(r.est.util * 100) + '%' : '–') + '</span>' +
+				'<span class="ofit ' + (r.fits ? 'ok' : '') + '">' + (r.fits ? 'fits' : 'too small') + '</span>' +
+				'<button class="mini" data-opt="' + i + '">Apply</button>' +
+				'</div>').join('');
+		box.querySelectorAll('[data-opt]').forEach(b => b.onclick = () => {
+			const r = rows[+b.dataset.opt];
+			const a = activeSheet();
+			a.w = r.pr.w; a.h = r.pr.h; a.unit = r.pr.u;
+			renderSheets(); renderEditView(); fitView(); updateJobStats();
+			closeModals();
+			toast('Sheet set to ' + r.pr.n + (r === best ? ' (best fit ★)' : '') + '.');
+			if ($('optAutoNest').checked) startNesting();
+		});
+		closeModals();
+		$('optimizerModal').classList.remove('hidden');
+	}
+
+	$('btnOptimize').onclick = openOptimizer;
+	$('optAutofit').onclick = () => {
+		const parts = liveParts().filter(p => p.qty > 0);
+		if (!parts.length) { toast('No parts to fit.'); return; }
+		const b = unionBounds(parts.map(p => p.bounds));
+		const margin = Math.max(GRID, (parseFloat($('cfgSpacing').value) || 0) * 4);
+		const a = activeSheet();
+		a.unit = 'px';
+		a.w = Math.ceil((b.width + margin * 2) / 10) * 10;
+		a.h = Math.ceil((b.height + margin * 2) / 10) * 10;
+		renderSheets(); renderEditView(); fitView(); updateJobStats();
+		closeModals();
+		toast('Sheet auto-fitted to ' + a.w + ' × ' + a.h + ' u.');
+	};
+
+	/* ---- job save / load ---- */
+
+	function saveJob() {
+		const data = {
+			app: 'deepnest-cad-web', version: 3,
+			savedAt: new Date().toISOString(),
+			material: state.material,
+			cfg: state.cfg,
+			sheets: state.sheets,
+			activeSheetId: state.activeSheetId,
+			parts: liveParts().map(p => ({
+				name: p.name, qty: p.qty, rotLock: !!p.rotLock, priority: p.priority || 0,
+				color: p.color, xf: p.xf,
+				els: p.els.map(m => new XMLSerializer().serializeToString(m.el))
+			}))
+		};
+		download('nesting-job.json', JSON.stringify(data));
+		toast('Job saved (nesting-job.json).');
+	}
+
+	function loadJob(text) {
+		try {
+			const data = JSON.parse(text);
+			if (data.app !== 'deepnest-cad-web') throw new Error('not a Deepnest CAD job file');
+			const parser = new DOMParser();
+			const rebuilt = [];
+			for (const jp of data.parts) {
+				const wrapper = parser.parseFromString('<svg xmlns="http://www.w3.org/2000/svg">' + jp.els.join('') + '</svg>', 'image/svg+xml');
+				const members = [];
+				Array.from(wrapper.documentElement.children).forEach(el => {
+					const poly = SvgParser.polygonify(el);
+					if (poly && poly.length > 2) members.push({ el: el, poly: poly, area: Math.abs(polyArea(poly)) });
+				});
+				if (!members.length) continue;
+				const p = makePart(jp.name, members);
+				p.qty = jp.qty; p.rotLock = !!jp.rotLock; p.priority = jp.priority || 0;
+				if (jp.color) p.color = jp.color;
+				if (jp.xf) { p.xf = Object.assign(p.xf, jp.xf); refreshPartGeom(p); }
+				rebuilt.push(p);
+			}
+			state.parts = rebuilt;
+			state.sheets = data.sheets.map(s => ({ id: uidSheet++, name: s.name, w: s.w, h: s.h, unit: s.unit }));
+			state.activeSheetId = state.sheets[0] ? state.sheets[0].id : null;
+			if (data.material) {
+				state.material = data.material;
+				$('matName').value = state.material.name; $('matThick').value = state.material.thickness;
+				$('matDensity').value = state.material.density; $('matPrice').value = state.material.priceSheet;
+				$('matRate').value = state.material.machineRate; $('matSpeed').value = state.material.cutSpeed;
+			}
+			if (data.cfg) {
+				$('cfgSpacing').value = data.cfg.spacing; $('cfgRotations').value = data.cfg.rotations;
+				$('cfgPopulation').value = data.cfg.populationSize; $('cfgMutation').value = data.cfg.mutationRate;
+				$('cfgCurveTol').value = data.cfg.curveTolerance; $('cfgUseHoles').checked = !!data.cfg.useHoles;
+				$('cfgExploreConcave').checked = !!data.cfg.exploreConcave;
+			}
+			state.history = []; state.histIndex = -1; state.selection = [];
+			state.mode = 'edit';
+			$('btnStart').disabled = false; $('btnStop').disabled = true;
+			$('btnImport').disabled = false; $('btnSample').disabled = false;
+			$('btnExport').disabled = true; $('btnReport').disabled = true;
+			setEngine(false);
+			undoStack.length = 0; redoStack.length = 0;
+			$('btnUndo').disabled = true; $('btnRedo').disabled = true;
+			clearSelection();
+			renderSheets(); renderPartList(); renderEditView(); fitView(); updateJobStats(); updateSpacingHint();
+			toast('Job loaded: ' + rebuilt.length + ' part types, ' + state.sheets.length + ' sheet(s).');
+			setStatus('Job loaded from file.');
+			return true;
+		} catch (err) {
+			console.error(err);
+			toast('Could not load job: ' + err.message);
+			return false;
+		}
+	}
+
+	$('btnSaveJob').onclick = saveJob;
+	$('btnLoadJob').onclick = () => $('jobInput').click();
+	$('jobInput').addEventListener('change', async (ev) => {
+		const f = ev.target.files && ev.target.files[0];
+		if (f) loadJob(await f.text());
+		ev.target.value = '';
+	});
+
+	/* ---- report ---- */
+
+	function showReport() {
+		const d = { stats: updateJobStats(), remnants: state.remnants };
+		const last = state.history[state.history.length - 1];
+		d.sheets = last ? last.sheets.length : 0;
+		d.util = last ? last.util : null;
+		d.parts = liveParts().map(p => ({
+			name: p.name, qty: p.qty, w: p.bounds.width, h: p.bounds.height,
+			area: p.tArea, rotLock: !!p.rotLock, priority: p.priority || 0
+		}));
+		if (!d.sheets) { toast('Run the nester first — the report includes nest results.'); return; }
+		const rows = d.parts.map(p =>
+			'<tr><td>' + p.name + '</td><td>' + p.qty + '</td><td>' + fmt(p.w) + ' × ' + fmt(p.h) + ' u</td><td>' +
+			fmt(p.area / 1e4, 2) + 'k u²</td><td>' + (p.rotLock ? '0° locked' : 'free') + '</td><td>' + (p.priority ? 'high' : 'normal') + '</td></tr>').join('');
+		const sheetRows = d.remnants.map((r, i) =>
+			'<tr><td>Sheet ' + (i + 1) + '</td><td>' + fmt(r.side) + ' u × ' + fmt(r.side) + ' u</td><td>' + fmt(r.sideMm) + ' mm</td></tr>').join('');
+		$('reportBody').innerHTML =
+			'<h4>Job summary</h4>' +
+			'<table class="rpt">' +
+			'<tr><th>Material</th><td>' + state.material.name + ' · ' + state.material.thickness + ' mm · ' + fmt(d.stats.weightKg, 1) + ' kg total</td></tr>' +
+			'<tr><th>Parts</th><td>' + d.stats.qty + ' (' + liveParts().length + ' types)</td></tr>' +
+			'<tr><th>Total part area</th><td>' + fmt(d.stats.area / 1e4, 1) + 'k u²</td></tr>' +
+			'<tr><th>Cut length</th><td>' + fmtLen(d.stats.cutlen * U2MM) + ' · ' + d.stats.pierces + ' pierces</td></tr>' +
+			'<tr><th>Est. cut time</th><td>' + (d.stats.timeMin >= 60 ? fmt(d.stats.timeMin / 60, 1) + ' h' : fmt(d.stats.timeMin) + ' min') + '</td></tr>' +
+			'<tr><th>Sheets used</th><td>' + d.sheets + ' × ' + fmt(d.stats.sheetWU) + ' × ' + fmt(d.stats.sheetHU) + ' u</td></tr>' +
+			'<tr><th>Material utilization</th><td>' + (d.util !== null ? (d.util * 100).toFixed(1) + '%' : '–') + '</td></tr>' +
+			'<tr><th>Material cost</th><td>' + fmtMoney(d.stats.matCost) + '</td></tr>' +
+			'<tr><th>Machine cost</th><td>' + fmtMoney(d.stats.machCost) + '</td></tr>' +
+			'<tr><th><b>Job total</b></th><td><b>' + fmtMoney(d.stats.total) + ' · ' + fmtMoney(d.stats.costPerPart) + '/part</b></td></tr>' +
+			'</table>' +
+			'<h4>Sheet remnants (largest reusable offcut)</h4>' +
+			'<table class="rpt"><tr><th>Sheet</th><th>Usable square</th><th>Metric</th></tr>' + (sheetRows || '<tr><td colspan="3">–</td></tr>') + '</table>' +
+			'<h4>Parts</h4>' +
+			'<table class="rpt"><tr><th>Name</th><th>Qty</th><th>Size (u)</th><th>Area</th><th>Rotation</th><th>Priority</th></tr>' + rows + '</table>';
+		closeModals();
+		$('reportModal').classList.remove('hidden');
+	}
+
+	$('btnReport').onclick = showReport;
+	$('reportHtml').onclick = () => {
+		const body = $('reportBody').innerHTML;
+		const html = '<!doctype html><html><head><meta charset="utf-8"><title>Nest Report</title>' +
+			'<style>body{font:13px/1.5 Segoe UI,sans-serif;color:#1b1d21;margin:28px;max-width:840px}h1{font-size:19px}h4{margin:18px 0 6px;color:#555}' +
+			'table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid #ddd}' +
+			'th{color:#777;font-size:10px;letter-spacing:1px;text-transform:uppercase}td:last-child,th:last-child{text-align:right}' +
+			'footer{color:#999;font-size:11px;margin-top:24px}</style></head><body>' +
+			'<h1>Deepnest CAD — Nest Report</h1><p>Generated ' + new Date().toLocaleString() + '</p>' + body +
+			'<footer>Generated by Deepnest CAD Web — https://cad-nest-pro.onrender.com</footer></body></html>';
+		download('nest-report.html', html);
+	};
+	$('reportCsv').onclick = () => {
+		const s = updateJobStats();
+		let csv = 'name,qty,width_u,height_u,area_u2,rotation,priority\n';
+		for (const p of liveParts()) csv += '"' + p.name + '",' + p.qty + ',' + fmt(p.bounds.width) + ',' + fmt(p.bounds.height) + ',' + Math.round(p.tArea) + ',' + (p.rotLock ? 'locked' : 'free') + ',' + (p.priority ? 'high' : 'normal') + '\n';
+		download('parts.csv', csv);
+	};
+
+	/* ---- modals, collapsibles, panel drawers, presets, help ---- */
+
+	function closeModals() { document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden')); }
+	document.querySelectorAll('.modal').forEach(m => {
+		m.addEventListener('click', (ev) => { if (ev.target === m) closeModals(); });
+	});
+	document.querySelectorAll('[data-close]').forEach(b => b.onclick = closeModals);
+
+	document.querySelectorAll('.panel h2.collapsible').forEach(h => {
+		h.addEventListener('click', () => {
+			h.classList.toggle('closed');
+			const body = $(h.dataset.target);
+			if (body) body.style.display = h.classList.contains('closed') ? 'none' : '';
+		});
+	});
+
+	document.querySelectorAll('.paneltoggle').forEach(b => {
+		b.onclick = () => {
+			document.body.classList.toggle(b.dataset.panel === 'left' ? 'show-left' : 'show-right');
+		};
+	});
+	$('drawerLeft').onclick = () => document.body.classList.toggle('show-left');
+	$('drawerRight').onclick = () => document.body.classList.toggle('show-right');
+
+	$('sheetPreset').addEventListener('change', () => {
+		const v = $('sheetPreset').value;
+		if (!v) return;
+		const parts = v.split(':');
+		const a = activeSheet();
+		a.unit = parts[0]; a.w = parseFloat(parts[1]); a.h = parseFloat(parts[2]);
+		renderSheets(); renderEditView(); fitView(); updateJobStats();
+		toast('Sheet preset applied: ' + a.w + ' × ' + a.h + ' ' + a.unit);
+	});
+
+	$('btnHelp').onclick = () => { closeModals(); $('helpModal').classList.remove('hidden'); };
+	$('polyClose').onclick = () => finishPolygon();
+	$('polyCancel').onclick = () => cancelPolygon();
+
+	window.addEventListener('keydown', (ev) => {
+		if (ev.key === '?' && ev.target.tagName !== 'INPUT') { closeModals(); $('helpModal').classList.remove('hidden'); }
+	});
+
 	/* ================= init ================= */
 
 	state.sheets = [makeSheet('Sheet 1', 600, 400, 'px')];
@@ -1577,10 +2147,17 @@
 	renderPartList();
 	renderSheets();
 	renderEditView();
-	setStatus('Ready. Import SVG/DXF or drop files on the canvas — then press Nest.');
+	updateSpacingHint();
+	updateJobStats();
+	setStatus('Ready. Import SVG/DXF or drop files on the canvas — then press Optimize or Nest.');
 
 	loadSample();
 
 	// exposed for automated testing / power users
-	window.__cad = { state, importSvgText, importDxfText, startNesting, stopNesting, setTool, fitView, refreshPartGeom, renderEditView, setSelection: (ids) => setSelection(ids) };
+	window.__cad = {
+		state, importSvgText, importDxfText, startNesting, stopNesting, setTool, fitView,
+		refreshPartGeom, renderEditView, setSelection: (ids) => setSelection(ids),
+		updateJobStats, computeJobStats, openOptimizer, loadJob, saveJob, showReport, computeRemnants,
+		buildJobSvgString, tagJobMeta
+	};
 })();
