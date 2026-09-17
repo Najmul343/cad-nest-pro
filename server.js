@@ -36,6 +36,11 @@ const server = http.createServer((req, res) => {
     return res.end('Bad request');
   }
 
+  if (urlPath === '/health') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    return res.end('OK');
+  }
+
   if (urlPath === '/') urlPath = '/index.html';
 
   const filePath = path.normalize(path.join(ROOT, urlPath));
@@ -57,11 +62,11 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, '127.0.0.1', () => {
+// must bind 0.0.0.0 on Render - binding 127.0.0.1 fails their port detection
+server.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('  Deepnest Web (CAD edition)');
   console.log('  --------------------------');
   console.log('  Local:  http://localhost:' + PORT);
-  console.log('');
   console.log('  Press Ctrl+C to stop the server.');
 });
