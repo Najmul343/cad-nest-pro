@@ -529,9 +529,9 @@ input[type="checkbox"] { accent-color: var(--accent); }
 
 /* drawing colors */
 .partgroup { cursor: move; }
-.partgroup .part { fill-opacity: 0.16; stroke-width: 1.4; vector-effect: non-scaling-stroke; }
+.partgroup .part { fill: currentColor; stroke: currentColor; fill-opacity: 0.16; stroke-width: 1.4; vector-effect: non-scaling-stroke; }
 .partgroup:hover .part { fill-opacity: 0.30; }
-.partgroup.selected .part { stroke-width: 2; }
+.partgroup.selected .part { stroke-width: 2; fill-opacity: 0.22; }
 .holepiece { fill-opacity: 0.05; }
 
 .binrect {
