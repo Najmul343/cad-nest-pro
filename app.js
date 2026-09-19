@@ -980,7 +980,8 @@
 		} else if (drag.kind === 'scale') {
 			const d = Math.hypot(w.x - drag.cx, w.y - drag.cy);
 			let s = drag.s0 * d / drag.d0;
-			if (state.snap) s = Math.max(0.05, Math.round(s * 20) / 20);
+			// fine quantization while dragging (1%); chunky 5% jumps felt "abrupt"
+			if (state.snap) s = Math.max(0.05, Math.round(s * 100) / 100);
 			drag.P.xf.s = Math.max(0.02, s);
 			refreshPartGeom(drag.P);
 			refreshPartDisplay(drag.P);
