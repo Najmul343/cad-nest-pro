@@ -568,27 +568,49 @@
 		sheetRect.setAttribute('visibility', 'visible');
 
 		for (const p of liveParts()) {
-			const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-			g.setAttribute('class', 'partgroup' + (state.selection.indexOf(p.id) >= 0 ? ' selected' : ''));
-			g.dataset.partId = p.id;
-			g.setAttribute('transform', xfString(p));
-			g.setAttribute('style', 'color:' + p.color);
-			for (let mi = 0; mi < p.els.length; mi++) {
-				const el = document.importNode(p.els[mi].el.cloneNode(true), true);
-				el.setAttribute('class', 'part' + (mi > 0 ? ' holepiece' : ''));
-				el.removeAttribute('id');
-				el.removeAttribute('transform');
-				g.appendChild(el);
+			content.appendChild(makePartGroup(p));
+			// real-view: ghost copies show the true quantity on canvas before nesting
+			// (display-only, capped at 24 for SVG perf; qty beyond that still nests)
+			if (p.qty > 1 && !state.arranging) {
+				for (let q = 1; q < Math.min(p.qty, 25); q++) {
+					const gg = makePartGroup(p);
+					gg.classList.add('ghostinst');
+					gg.dataset.ghost = '1';
+					gg.dataset.q = q;
+					gg.setAttribute('transform', ghostXf(p, q));
+					content.appendChild(gg);
+				}
 			}
-			content.appendChild(g);
 		}
 		renderOverlay();
 		updateUxState();
 	}
 
+	function ghostXf(p, q) {
+		const o = snapv(18) * q;
+		return 'translate(' + o + ' ' + o + ') ' + xfString(p);
+	}
+
+	function makePartGroup(p) {
+		const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+		g.setAttribute('class', 'partgroup' + (state.selection.indexOf(p.id) >= 0 ? ' selected' : ''));
+		g.dataset.partId = p.id;
+		g.setAttribute('transform', xfString(p));
+		g.setAttribute('style', 'color:' + p.color);
+		for (let mi = 0; mi < p.els.length; mi++) {
+			const el = document.importNode(p.els[mi].el.cloneNode(true), true);
+			el.setAttribute('class', 'part' + (mi > 0 ? ' holepiece' : ''));
+			el.removeAttribute('id');
+			el.removeAttribute('transform');
+			g.appendChild(el);
+		}
+		return g;
+	}
+
 	function refreshPartDisplay(p) {
-		const g = content.querySelector('.partgroup[data-part-id="' + p.id + '"]');
-		if (g) g.setAttribute('transform', xfString(p));
+		content.querySelectorAll('.partgroup[data-part-id="' + p.id + '"]').forEach(g => {
+			g.setAttribute('transform', g.dataset.ghost ? ghostXf(p, +g.dataset.q) : xfString(p));
+		});
 	}
 
 	/* ================= selection & overlay ================= */
@@ -670,12 +692,11 @@
 	function scaleTo(dim) {
 		const P = selParts().pop(); if (!P) return;
 		const v = parseFloat($(dim === 'w' ? 'selW' : 'selH').value);
-		const orig = dim === 'w'
-			? polygonBoundsOf(P.els[0].poly).width
-			: polygonBoundsOf(P.els[0].poly).height;
-		if (!v || !orig) return;
+		// current *displayed* bounds — rotation-aware (typing W after a 90° rotate must not swap axes)
+		const cur = dim === 'w' ? P.bounds.width : P.bounds.height;
+		if (!v || !cur) return;
 		pushUndo();
-		P.xf.s = Math.max(0.01, v / orig);
+		P.xf.s = Math.max(0.01, P.xf.s * v / cur);
 		refreshPartGeom(P); afterEdit();
 		setStatus('Resized to ' + fmt(P.bounds.width) + ' × ' + fmt(P.bounds.height) + ' u (scale ' + fmt(P.xf.s, 2) + '×).');
 	}
@@ -970,8 +991,8 @@
 			renderOverlay();
 		} else if (drag.kind === 'rotate') {
 			const a = Math.atan2(w.y - drag.c.y, w.x - drag.c.x);
-			let deg = drag.r0 + (a - drag.a0) * 180 / Math.PI;
-			if (state.snap) deg = Math.round(deg / 15) * 15;
+			// smooth while dragging; 15° snap is applied on release (SolidWorks-style)
+			const deg = drag.r0 + (a - drag.a0) * 180 / Math.PI;
 			drag.P.xf.rot = Math.round(deg * 10) / 10;
 			refreshPartGeom(drag.P);
 			refreshPartDisplay(drag.P);
@@ -1022,6 +1043,7 @@
 		} else if (d.kind === 'move' && !d.moved) {
 			undoStack.pop(); // click without move: drop the undo entry
 		} else if (d.kind === 'scale' || d.kind === 'rotate') {
+			if (state.snap && d.kind === 'rotate') d.P.xf.rot = Math.round(d.P.xf.rot / 15) * 15;
 			refreshPartGeom(d.P); renderPartList(); syncSelectionPanel(); renderOverlay();
 		} else if (d.kind === 'draw') {
 			if (d.tmp) d.tmp.remove();
@@ -1131,6 +1153,250 @@
 		const factor = Math.exp(-Math.max(-150, Math.min(150, dy)) * 0.0012);
 		zoomAt(ev.clientX - r.left, ev.clientY - r.top, factor);
 	}, { passive: false });
+
+	/* ================= arrange mode: magnetic drag / gravity / boundary ================= */
+	/* Physics-backed manual layout using Matter.js (enterprise "interactive
+	 * nesting" pattern). Each part becomes a rigid body inflated by half the
+	 * configured spacing, so the collision rest distance IS the part gap.
+	 * Drag is a velocity servo toward the cursor — collision-aware push-aside.
+	 * Magnet = weak pairwise attraction; Gravity = pile toward the floor;
+	 * Boundary = user-drawn rectangle that confines parts. Positions bake back
+	 * into part.xf continuously, so undo (Ctrl+Z) and nesting work afterwards.
+	 * ponytail: naive vertex-offset for gap inflation (bisector method) — has a
+	 * ceiling on very concave shapes; upgrade path is clipper offset. */
+
+	let arrange = null;
+	let arrBoundaryArm = false;
+	let arrRect = null;
+	let arrPtr = null; // pointerId owned by arrange handlers (editor's are blocked)
+
+	function arrWalls(bounds) {
+		const t = 120, T = Matter;
+		const mk = (x, y, w, h) => {
+			const b = T.Bodies.rectangle(x, y, w, h, { isStatic: true, label: 'wall', friction: 0.8 });
+			b.collisionFilter.category = 0x0002;
+			return b;
+		};
+		return [
+			mk(bounds.x + bounds.width / 2, bounds.y - t / 2, bounds.width + t * 2, t),
+			mk(bounds.x + bounds.width / 2, bounds.y + bounds.height + t / 2, bounds.width + t * 2, t),
+			mk(bounds.x - t / 2, bounds.y + bounds.height / 2, t, bounds.height + t * 2),
+			mk(bounds.x + bounds.width + t / 2, bounds.y + bounds.height / 2, t, bounds.height + t * 2)
+		];
+	}
+
+	function inflatePoly(pts, off) {
+		if (!off) return pts.slice();
+		const raw = (pts, o) => {
+			const n = pts.length, out = [];
+			for (let i = 0; i < n; i++) {
+				const a = pts[(i - 1 + n) % n], b = pts[i], c = pts[(i + 1) % n];
+				let n1x = b.y - a.y, n1y = a.x - b.x, l1 = Math.hypot(n1x, n1y) || 1;
+				let n2x = c.y - b.y, n2y = b.x - c.x, l2 = Math.hypot(n2x, n2y) || 1;
+				out.push({ x: b.x + (n1x / l1 + n2x / l2) * o, y: b.y + (n1y / l1 + n2y / l2) * o });
+			}
+			return out;
+		};
+		let cx = 0, cy = 0;
+		pts.forEach(p => { cx += p.x; cy += p.y; });
+		cx /= pts.length; cy /= pts.length;
+		const plus = raw(pts, off);
+		const grew = Math.hypot(plus[0].x - cx, plus[0].y - cy) >= Math.hypot(pts[0].x - cx, pts[0].y - cy);
+		return grew ? plus : raw(pts, -off);
+	}
+
+	function startArrange() {
+		if (state.mode !== 'edit') { setStatus('Arrange works in EDIT view.'); return; }
+		if (!window.Matter) { setStatus('Physics engine failed to load (CDN blocked?).'); return; }
+		if (!liveParts().length) { setStatus('Import or draw a part first.'); return; }
+		setTool('select');
+		clearSelection(); renderPartList(); renderEditSelection(); syncSelectionPanel();
+		pushUndo();
+		state.arranging = true;
+		renderEditView(); // re-render without ghost copies
+		$('arrangeBar').classList.remove('hidden');
+		$('btnArrange').classList.add('active');
+
+		const T = Matter;
+		if (T.Common.setDecomp && window.decomp) T.Common.setDecomp(window.decomp);
+		const engine = T.Engine.create({ enableSleeping: true });
+		engine.gravity.y = $('arrGravity').checked ? 1 : 0;
+		const gap = Math.max(0, parseFloat(($('cfgSpacing') || {}).value) || state.cfg.spacing || 0) / 2;
+
+		const f = unitFactor(), sh = activeSheet();
+		const bodies = [];
+		for (const p of liveParts()) {
+			if (p.qty < 1) continue;
+			// vertices in the unrotated pose, COM centered at c0 — then setAngle/
+			// setPosition reproduce the xf transform exactly
+			const verts0 = p.els[0].poly.map(pt => ({
+				x: p.c0.x + (pt.x - p.c0.x) * p.xf.s * (p.xf.fx < 0 ? -1 : 1),
+				y: p.c0.y + (pt.y - p.c0.y) * p.xf.s * (p.xf.fy < 0 ? -1 : 1)
+			}));
+			let body = null;
+			try {
+				body = T.Bodies.fromVertices(p.c0.x, p.c0.y, [inflatePoly(verts0, gap)],
+					{ frictionAir: 0.06, friction: 0.5, restitution: 0.05, density: 0.001 }, true);
+			} catch (e) { body = null; }
+			if (!body || !body.parts || body.parts.length < 1) continue;
+			T.Body.setAngle(body, p.xf.rot * Math.PI / 180);
+			T.Body.setPosition(body, { x: p.c0.x + p.xf.dx, y: p.c0.y + p.xf.dy });
+			if (p.rotLock) T.Body.setInertia(body, Infinity);
+			bodies.push({ p: p, body: body });
+		}
+		if (!bodies.length) {
+			state.arranging = false;
+			$('arrangeBar').classList.add('hidden');
+			$('btnArrange').classList.remove('active');
+			setStatus('No usable part outlines for physics.');
+			return;
+		}
+
+		const walls = arrWalls({ x: 0, y: 0, width: sh.w * f, height: sh.h * f });
+		T.Composite.add(engine.world, walls);
+		bodies.forEach(o => T.Composite.add(engine.world, o.body));
+
+		const A = arrange = {
+			engine: engine, bodies: bodies, walls: walls, boundary: null,
+			grabbed: null, target: null, raf: 0, last: performance.now()
+		};
+
+		function tick(now) {
+			if (!state.arranging || arrange !== A) return;
+			const dt = Math.min(40, Math.max(8, now - A.last));
+			A.last = now;
+			if ($('arrMagnet').checked) {
+				for (let i = 0; i < bodies.length; i++) {
+					for (let j = i + 1; j < bodies.length; j++) {
+						const B1 = bodies[i].body, B2 = bodies[j].body;
+						if (B1.isSleeping && B2.isSleeping) continue;
+						const dx = B2.position.x - B1.position.x, dy = B2.position.y - B1.position.y;
+						const d = Math.hypot(dx, dy);
+						if (d > 320 || d < 1) continue;
+						const s = 0.0005 * (1 - d / 320);
+						T.Body.applyForce(B1, B1.position, { x: dx / d * s * B1.mass, y: dy / d * s * B1.mass });
+						T.Body.applyForce(B2, B2.position, { x: -dx / d * s * B2.mass, y: -dy / d * s * B2.mass });
+					}
+				}
+			}
+			if (A.grabbed) {
+				const b = A.grabbed;
+				T.Sleeping.set(b, false);
+				let vx = (A.target.x - b.position.x) * 0.3, vy = (A.target.y - b.position.y) * 0.3;
+				const sp = Math.hypot(vx, vy);
+				if (sp > 60) { vx = vx / sp * 60; vy = vy / sp * 60; }
+				T.Body.setVelocity(b, { x: vx, y: vy });
+			}
+			T.Engine.update(engine, dt);
+			for (const o of bodies) {
+				if (o.body.isSleeping) continue;
+				o.p.xf.rot = Math.round(o.body.angle * 180 / Math.PI * 10) / 10;
+				o.p.xf.dx = o.body.position.x - o.p.c0.x;
+				o.p.xf.dy = o.body.position.y - o.p.c0.y;
+				refreshPartGeom(o.p);
+				refreshPartDisplay(o.p);
+			}
+			A.raf = requestAnimationFrame(tick);
+		}
+		A.raf = requestAnimationFrame(tick);
+		setStatus('ARRANGE — drag parts: they push aside and respect the ' + fmt(gap * 2) + ' u gap. Magnet/gravity/boundary in the bar. Esc or ✓ Done to finish.');
+	}
+
+	function stopArrange() {
+		if (!state.arranging || !arrange) return;
+		cancelAnimationFrame(arrange.raf);
+		arrange = null;
+		state.arranging = false;
+		arrBoundaryArm = false;
+		arrRect = null;
+		$('arrangeBar').classList.add('hidden');
+		$('arrangeBar').classList.remove('boundary-draw');
+		$('btnArrange').classList.remove('active');
+		renderEditView();
+		setStatus('Arrange finished — positions baked in. Ctrl+Z reverts.');
+	}
+
+	// capture-phase pointer handlers: they pre-empt the editor's own handlers
+	// while arranging, except middle/space pan which stays available
+	document.addEventListener('pointerdown', (ev) => {
+		if (!state.arranging || !viewport.contains(ev.target)) return;
+		if (ev.button === 1 || spaceHeld) return;
+		ev.stopPropagation();
+		ev.preventDefault();
+		const w = screenToWorld(ev.clientX, ev.clientY);
+		if (arrBoundaryArm) {
+			arrPtr = ev.pointerId;
+			arrRect = { x0: w.x, y0: w.y, tmp: null, rect: null };
+			return;
+		}
+		const hits = Matter.Query.point(arrange.bodies.map(o => o.body), w);
+		if (!hits.length) return;
+		arrPtr = ev.pointerId;
+		Matter.Sleeping.set(hits[0], false);
+		arrange.grabbed = hits[0];
+		arrange.target = { x: w.x, y: w.y };
+	}, true);
+	document.addEventListener('pointermove', (ev) => {
+		if (!state.arranging || arrPtr !== ev.pointerId) return;
+		ev.stopPropagation();
+		if (arrRect) {
+			const w = screenToWorld(ev.clientX, ev.clientY);
+			const b = normRect(arrRect.x0, arrRect.y0, w.x, w.y);
+			if (arrRect.tmp) arrRect.tmp.remove();
+			arrRect.tmp = mk('rect', { x: b.x, y: b.y, width: b.width, height: b.height, class: 'arrboundline' });
+			overlay.appendChild(arrRect.tmp);
+			arrRect.rect = b;
+			return;
+		}
+		if (arrange && arrange.grabbed) {
+			arrange.target = screenToWorld(ev.clientX, ev.clientY);
+		}
+	}, true);
+	document.addEventListener('pointerup', (ev) => {
+		if (!state.arranging || arrPtr !== ev.pointerId) return;
+		arrPtr = null;
+		ev.stopPropagation();
+		if (arrRect) {
+			const b = arrRect.rect;
+			if (arrRect.tmp) arrRect.tmp.remove();
+			arrRect = null;
+			arrBoundaryArm = false;
+			$('arrangeBar').classList.remove('boundary-draw');
+			if (b && b.width > 20 && b.height > 20) {
+				Matter.Composite.remove(arrange.engine.world, arrange.walls);
+				arrange.walls = arrWalls(b);
+				Matter.Composite.add(arrange.engine.world, arrange.walls);
+				arrange.boundary = b;
+				overlay.innerHTML += '<rect class="arrboundary" x="' + b.x + '" y="' + b.y + '" width="' + b.width + '" height="' + b.height + '"/>';
+				arrange.bodies.forEach(o => Matter.Sleeping.set(o.body, false));
+				setStatus('Boundary set (' + fmt(b.width) + ' × ' + fmt(b.height) + ' u) — parts stay inside.');
+			}
+			return;
+		}
+		if (arrange && arrange.grabbed) { arrange.grabbed = null; }
+	}, true);
+
+	$('btnArrange').onclick = () => { state.arranging ? stopArrange() : startArrange(); };
+	$('arrDone').onclick = stopArrange;
+	$('arrGravity').addEventListener('change', () => {
+		if (!arrange) return;
+		arrange.engine.gravity.y = $('arrGravity').checked ? 1 : 0;
+		arrange.bodies.forEach(o => Matter.Sleeping.set(o.body, false));
+	});
+	$('arrCollide').addEventListener('change', () => {
+		if (!arrange) return;
+		const on = $('arrCollide').checked;
+		arrange.bodies.forEach(o => {
+			o.body.collisionFilter.mask = on ? 0xFFFFFFFF : 0x0002;
+			Matter.Sleeping.set(o.body, false);
+		});
+	});
+	$('arrBoundary').onclick = () => {
+		if (!state.arranging) return;
+		arrBoundaryArm = true;
+		$('arrangeBar').classList.add('boundary-draw');
+		setStatus('Boundary: drag a rectangle on the canvas — parts will be confined inside it.');
+	};
 
 	/* ================= sheets manager ================= */
 
@@ -1273,6 +1539,7 @@
 	}
 
 	function startNesting() {
+		if (state.arranging) stopArrange();
 		if (state.running) return;
 		const totalQty = liveParts().reduce((s, p) => s + p.qty, 0);
 		if (totalQty === 0) { setStatus('No parts to nest — set quantities greater than zero.'); return; }
@@ -1612,11 +1879,14 @@
 			case 'e': case 'E': rotSel(90); break;
 			case 'g': case 'G': state.snap = !state.snap; $('chkSnap').checked = state.snap; syncSnap(); break;
 			case 'f': case 'F': fitView(); break;
+			case 'a': case 'A': state.arranging ? stopArrange() : startArrange(); break;
 			case '+': case '=': zoomStep(1.25); break;
 			case '-': case '_': zoomStep(0.8); break;
 			case ' ': spaceHeld = true; ev.preventDefault(); break;
 			case 'Escape':
-				if (polyPts.length) cancelPolygon();
+				if (state.arranging && arrBoundaryArm) { arrBoundaryArm = false; $('arrangeBar').classList.remove('boundary-draw'); }
+				else if (state.arranging) stopArrange();
+				else if (polyPts.length) cancelPolygon();
 				else if (sim) stopSim();
 				else { clearSelection(); renderPartList(); renderEditSelection(); renderOverlay(); syncSelectionPanel(); }
 				break;
@@ -2337,6 +2607,8 @@
 	window.__cad = {
 		state, importSvgText, importDxfText, startNesting, stopNesting, setTool, fitView,
 		refreshPartGeom, renderEditView, setSelection: (ids) => setSelection(ids),
+		getArrange: () => arrange,
+		arrDebug: () => ({ arm: arrBoundaryArm, rect: arrRect, ptr: arrPtr, boundary: arrange && arrange.boundary, arranging: state.arranging }),
 		updateJobStats, computeJobStats, openOptimizer, loadJob, saveJob, showReport, computeRemnants,
 		buildJobSvgString, tagJobMeta
 	};

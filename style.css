@@ -779,3 +779,24 @@ input[type="checkbox"] { accent-color: var(--accent); }
 	#resultBar { flex-wrap: wrap; justify-content: center; top: 44px; }
 	.rb-text { white-space: normal; }
 }
+
+/* ============ ARRANGE MODE (physics) ============ */
+#arrangeBar {
+	position: absolute;
+	bottom: 12px; left: 50%; transform: translateX(-50%);
+	display: flex; align-items: center; gap: 10px;
+	background: rgba(27,29,33,0.94);
+	border: 1px solid var(--accent-dim);
+	border-radius: 8px;
+	padding: 6px 12px;
+	z-index: 8;
+	font-size: 12px;
+}
+#arrangeBar.hidden { display: none; }
+#arrangeBar .abtitle { font-family: var(--mono); letter-spacing: 1px; color: var(--accent); font-size: 11px; }
+#arrangeBar .abopt { display: flex; align-items: center; gap: 4px; cursor: pointer; color: var(--txt1); user-select: none; }
+#arrangeBar .abopt input { accent-color: var(--accent); }
+#arrangeBar.boundary-draw #arrBoundary { border-color: var(--accent); color: var(--accent); }
+.ghostinst { opacity: 0.38; pointer-events: none; }
+.arrboundline { fill: rgba(255,154,60,0.05); stroke: var(--accent); stroke-dasharray: 6 4; stroke-width: 1.5; }
+.arrboundary { fill: rgba(255,154,60,0.04); stroke: var(--accent); stroke-dasharray: 6 4; stroke-width: 1.5; pointer-events: none; }

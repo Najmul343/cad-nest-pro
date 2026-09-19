@@ -113,6 +113,10 @@
 				<svg viewBox="0 0 24 24"><path d="M12 3l8 6-3 10H7L4 9z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
 			</button>
 			<div class="railsep"></div>
+			<button class="railbtn" id="btnArrange" title="Arrange mode (A) — physics-backed manual layout: parts collide and respect the gap, magnetic pull, gravity, drawable boundary">
+				<span style="font-size:15px;line-height:1">🧲</span>
+			</button>
+			<div class="railsep"></div>
 			<button class="railbtn" id="railFlipH" title="Flip horizontal (H)">
 				<svg viewBox="0 0 24 24"><path d="M12 3v18M8 7L4 12l4 5M16 7l4 5-4 5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
 			</button>
@@ -163,6 +167,14 @@
 						</g>
 					</svg>
 					<div id="polyBar" class="hidden"><span>Drawing polygon — tap vertices</span><button id="polyClose" class="mini">✓ Close</button><button id="polyCancel" class="mini danger">Cancel</button></div>
+					<div id="arrangeBar" class="hidden">
+						<span class="abtitle">🧲 ARRANGE</span>
+						<label class="abopt"><input type="checkbox" id="arrCollide" checked> Collide</label>
+						<label class="abopt"><input type="checkbox" id="arrMagnet" checked> Magnet</label>
+						<label class="abopt"><input type="checkbox" id="arrGravity"> Gravity</label>
+						<button id="arrBoundary" class="mini">⛶ Boundary</button>
+						<button id="arrDone" class="mini accent">✓ Done</button>
+					</div>
 					<div id="crosshairV" class="crosshair hidden"></div>
 					<div id="crosshairH" class="crosshair hidden"></div>
 					<div id="viewBadge" class="viewbadge">EDIT</div>
@@ -423,6 +435,7 @@
 		<div class="modalbody">
 			<table class="keys">
 				<tr><td>V / M / R / C / P</td><td>select · measure · rectangle · circle · polygon tools</td></tr>
+				<tr><td>A</td><td>arrange mode — magnetic drag, gravity, boundary (🧲)</td></tr>
 				<tr><td>Q / E</td><td>rotate selection ±90°</td></tr>
 				<tr><td>H / J</td><td>flip horizontal / vertical</td></tr>
 				<tr><td>arrows</td><td>nudge (Shift = ×5)</td></tr>
@@ -466,6 +479,9 @@
 <script src="util/placementworker.js"></script>
 <script src="svgparser.js"></script>
 <script src="svgnest.js"></script>
+<!-- physics engine for ARRANGE mode (magnetic drag / gravity / boundary) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/poly-decomp/0.3.0/decomp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
