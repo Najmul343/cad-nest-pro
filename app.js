@@ -1123,7 +1123,12 @@
 	viewport.addEventListener('wheel', (ev) => {
 		ev.preventDefault();
 		const r = canvas.getBoundingClientRect();
-		zoomAt(ev.clientX - r.left, ev.clientY - r.top, Math.exp(-ev.deltaY * 0.0012));
+		// normalize deltas: line/page modes (Firefox, some mice) → px; clamp so one
+		// fast notch or a high-res burst can't jump the view (max ±40% per event)
+		let dy = ev.deltaY;
+		if (ev.deltaMode === 1) dy *= 16; else if (ev.deltaMode === 2) dy *= r.height;
+		const factor = Math.exp(-Math.max(-150, Math.min(150, dy)) * 0.0012);
+		zoomAt(ev.clientX - r.left, ev.clientY - r.top, factor);
 	}, { passive: false });
 
 	/* ================= sheets manager ================= */
