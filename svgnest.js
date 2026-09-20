@@ -563,7 +563,23 @@
 								numPlacedParts++;
 							}
 						}
-						displayCallback(self.applyPlacement(best.placements), placedArea/totalArea, numPlacedParts+'/'+numParts);
+						var raw = [];
+						var sigCache = {};
+						for(i=0; i<best.placements.length; i++){
+							for(var j2=0; j2<best.placements[i].length; j2++){
+								var pl = best.placements[i][j2];
+								var tn = tree[pl.id];
+								if(!tn || tn.source === undefined) continue;
+								if(!sigCache[tn.source]){
+									var sigPoly = SvgParser.polygonify(parts[tn.source]);
+									sigCache[tn.source] = (sigPoly && sigPoly.length) ? { area: Math.abs(GeometryUtil.polygonArea(sigPoly)), x0: sigPoly[0].x, y0: sigPoly[0].y } : null;
+								}
+								var sig = sigCache[tn.source];
+								if(!sig) continue;
+								raw.push({ x: pl.x, y: pl.y, rotation: pl.rotation, sheet: i, area: sig.area, x0: sig.x0, y0: sig.y0 });
+							}
+						}
+						displayCallback(self.applyPlacement(best.placements), placedArea/totalArea, numPlacedParts+'/'+numParts, raw);
 					}
 					else{
 						displayCallback();

@@ -800,3 +800,17 @@ input[type="checkbox"] { accent-color: var(--accent); }
 .ghostinst { opacity: 0.38; pointer-events: none; }
 .arrboundline { fill: rgba(255,154,60,0.05); stroke: var(--accent); stroke-dasharray: 6 4; stroke-width: 1.5; }
 .arrboundary { fill: rgba(255,154,60,0.04); stroke: var(--accent); stroke-dasharray: 6 4; stroke-width: 1.5; pointer-events: none; }
+#arrangeBar .abest { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--txt1); white-space: nowrap; }
+#arrangeBar .abest:empty { display: none; }
+.quickadd { display: flex; align-items: center; gap: 5px; padding: 8px 10px 10px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.quickadd input { flex: 1 1 40px; width: auto; min-width: 36px; background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; color: var(--txt0); padding: 4px 6px; font: 12px var(--mono); }
+.quickadd input::-webkit-outer-spin-button, .quickadd input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.quickadd input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+.quickadd .qax { color: var(--txt2); font-size: 11px; }
+.quickadd .mini { flex: none; margin-left: auto; }
+.cuttable { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px; }
+.cuttable th { text-align: left; color: var(--txt2); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.cuttable td { padding: 3px 4px; border-bottom: 1px solid var(--line); }
+.cuttable input { width: 100%; min-width: 64px; background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; color: var(--txt0); padding: 4px 6px; font: 12px var(--mono); }
+.cuttable td.tblidx { color: var(--txt2); width: 26px; text-align: right; }
+.cuttable td.tblunit { color: var(--txt2); width: 30px; white-space: nowrap; }

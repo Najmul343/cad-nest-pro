@@ -112,17 +112,21 @@
 	 * SVG transform string "translate(dx dy) rotate(r cx cy) translate(cx cy)
 	 * scale(s*fx s*fy) translate(-cx -cy)" which the engine bakes on import. */
 
-	function xfString(p) {
-		const c = p.c0, f = p.xf;
+	function xfStr(p, f) {
+		const c = p.c0;
 		return 'translate(' + f.dx + ' ' + f.dy + ')' +
 			(f.rot ? ' rotate(' + f.rot + ' ' + c.x + ' ' + c.y + ')' : '') +
 			(f.s !== 1 || f.fx < 0 || f.fy < 0
 				? ' translate(' + c.x + ' ' + c.y + ') scale(' + (f.s * f.fx) + ' ' + (f.s * f.fy) + ') translate(' + (-c.x) + ' ' + (-c.y) + ')'
 				: '');
 	}
+	function xfString(p) { return xfStr(p, p.xf); }
 
 	function xfPoint(p, pt) {
-		const c = p.c0, f = p.xf;
+		return xfPointF(p, p.xf, pt);
+	}
+	function xfPointF(p, f, pt) {
+		const c = p.c0;
 		let x = pt.x, y = pt.y;
 		if (f.fx < 0) x = 2 * c.x - x;
 		if (f.fy < 0) y = 2 * c.y - y;
@@ -433,6 +437,7 @@
 		const act = ev.target.dataset && ev.target.dataset.a;
 		if (act === 'inc') { pushUndo(); p.qty++; }
 		else if (act === 'dec') { if (p.qty > 0) { pushUndo(); p.qty = Math.max(0, p.qty - 1); } }
+		if (act === 'inc' || act === 'dec') syncInstances(p);
 		else if (act === 'del') { pushUndo(); p.deleted = true; removeFromSelection(p.id); }
 		else {
 			const idx = state.selection.indexOf(p.id);
@@ -443,6 +448,98 @@
 		if (state.mode === 'edit') { renderEditView(); renderOverlay(); }
 		syncSelectionPanel();
 	});
+
+	// shared rect-part factory for quick add + cut-list table (cascade placement)
+	function addRectPart(name, w, h, qty) {
+		const sh = activeSheet();
+		const cols = Math.max(1, Math.floor((sh.w - 10) / (w + 8)));
+		const n = state.parts.length;
+		const px = 5 + (n % cols) * (w + 8);
+		const py = 5 + Math.floor(n / cols) * (h + 8);
+		const el = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+		el.setAttribute('x', px); el.setAttribute('y', py);
+		el.setAttribute('width', w); el.setAttribute('height', h);
+		let poly;
+		try { poly = SvgParser.polygonify(el); } catch (e) { return null; }
+		const p = makePart(name, [{ el: el, poly: poly, area: Math.abs(polyArea(poly)) }]);
+		p.qty = Math.max(1, Math.round(qty || 1));
+		syncInstances(p);
+		state.parts.push(p);
+		return p;
+	}
+
+	/* ---- OptiCutter-style optional cut-list table: simple named W x H x qty rows,
+	 * plus stock size. Optional alongside imports/drawing; rows persist locally. ---- */
+	const TB_KEY = 'cadnest.cutlist.v1';
+	let tbRows = [];
+	function tbLoad() {
+		try { tbRows = JSON.parse(localStorage.getItem(TB_KEY)) || []; } catch (e) { tbRows = []; }
+		if (!tbRows.length) tbRows = [{ name: 'Part 1', w: 100, h: 50, qty: 1 }];
+	}
+	function tbSave() { try { localStorage.setItem(TB_KEY, JSON.stringify(tbRows)); } catch (e) { /* private mode */ } }
+	function tbRender() {
+		const tb = $('tbPartsBody');
+		tb.innerHTML = '';
+		tbRows.forEach((r, i) => {
+			const tr = document.createElement('tr');
+			tr.innerHTML = '<td class="tblidx"></td>' +
+				'<td><input data-k="name" type="text"></td>' +
+				'<td><input data-k="w" type="number" min="0" step="any"></td>' +
+				'<td><input data-k="h" type="number" min="0" step="any"></td>' +
+				'<td><input data-k="qty" type="number" min="1" step="1"></td>' +
+				'<td><button class="mini danger" data-del="1" title="Remove row">✕</button></td>';
+			tr.querySelector('.tblidx').textContent = i + 1;
+			['name', 'w', 'h', 'qty'].forEach(k => {
+				const inp = tr.querySelector('[data-k="' + k + '"]');
+				inp.value = r[k];
+				inp.addEventListener('input', () => { r[k] = k === 'name' ? inp.value : parseFloat(inp.value); tbSave(); });
+			});
+			tr.querySelector('[data-del]').addEventListener('click', () => { tbRows.splice(i, 1); tbSave(); tbRender(); });
+			tb.appendChild(tr);
+		});
+	}
+	function openTableModal() {
+		tbLoad(); tbRender();
+		const sh = activeSheet();
+		$('tbStockW').value = sh.w; $('tbStockH').value = sh.h;
+		$('tbUnit').textContent = sh.unit || 'u';
+		closeModals();
+		$('tableModal').classList.remove('hidden');
+	}
+	$('qaTable').addEventListener('click', openTableModal);
+	$('tbAddRow').addEventListener('click', () => { tbRows.push({ name: 'Part ' + (tbRows.length + 1), w: '', h: '', qty: 1 }); tbSave(); tbRender(); });
+	$('tbApply').addEventListener('click', () => {
+		const sw = parseFloat($('tbStockW').value), shh = parseFloat($('tbStockH').value);
+		const rows = tbRows.filter(r => r.w > 0 && r.h > 0 && r.qty > 0);
+		if (!rows.length) { setStatus('Cut list: add at least one row with W, H and qty.'); return; }
+		pushUndo();
+		if (sw > 0 && shh > 0) { activeSheet().w = sw; activeSheet().h = shh; renderSheetsMeta(); }
+		for (const p of state.parts) if (p.fromTable) p.deleted = true; // re-apply replaces table parts, imports stay
+		rows.forEach((r, i) => {
+			const p = addRectPart(r.name || ('Part ' + (i + 1)), r.w, r.h, r.qty);
+			if (p) p.fromTable = true;
+		});
+		renderPartList(); renderEditView(); renderOverlay(); syncSelectionPanel(); updateJobStats(); fitView();
+		closeModals();
+		setStatus('Cut list applied: ' + rows.reduce((s, r) => s + Math.round(r.qty), 0) + ' part(s) from ' + rows.length + ' row(s), sheet ' + fmt(sw) + '×' + fmt(shh) + ' u. Ctrl+Z reverts.');
+	});
+
+	/* quick numeric part entry: W x H x qty -> rectangle part on the sheet */
+	function quickAddRect() {
+		const w = parseFloat($('qaW').value), h = parseFloat($('qaH').value);
+		const q = Math.max(1, Math.round(parseFloat($('qaQ').value) || 1));
+		if (!(w > 0) || !(h > 0)) { setStatus('Quick add: enter width and height in sheet units.'); return; }
+		const name = 'Rect ' + (++uidName);
+		const p = addRectPart(name, w, h, q);
+		if (!p) { setStatus('Quick add failed.'); return; }
+		setSelection([p.id]);
+		renderPartList(); renderEditView(); syncSelectionPanel(); updateJobStats();
+		setStatus('Added ' + name + ' — ' + w + '×' + h + ' u ×' + q + '.');
+	}
+	$('qaAdd').addEventListener('click', quickAddRect);
+	['qaW', 'qaH', 'qaQ'].forEach(id => $(id).addEventListener('keydown', (ev) => {
+		if (ev.key === 'Enter') { ev.preventDefault(); quickAddRect(); }
+	}));
 
 	/* ================= view: pan / zoom / rulers / grid ================= */
 
@@ -568,6 +665,16 @@
 		sheetRect.setAttribute('visibility', 'visible');
 
 		for (const p of liveParts()) {
+			if (state.arranging && p._arrInst && p._arrInst.length) {
+				// arrange mode: every quantity copy is a live, physics-backed instance
+				for (const q of p._arrInst) {
+					const g = makePartGroup(p);
+					g.dataset.inst = q;
+					g.setAttribute('transform', xfStr(p, instXf(p, q)));
+					content.appendChild(g);
+				}
+				continue;
+			}
 			content.appendChild(makePartGroup(p));
 			// real-view: ghost copies show the true quantity on canvas before nesting
 			// (display-only, capped at 24 for SVG perf; qty beyond that still nests)
@@ -586,9 +693,27 @@
 		updateUxState();
 	}
 
+	// per-copy transforms: copy 0 is the prototype (p.xf); copies q>0 live in
+	// p.inst[q-1]. arrange mode writes real settled positions here, so manual
+	// magnetic/gravity layouts feed straight into nesting and export.
+	function syncInstances(p) {
+		const n = Math.max(0, p.qty - 1);
+		if (!p.inst) p.inst = [];
+		while (p.inst.length > n) p.inst.pop();
+		while (p.inst.length < n) {
+			const q = p.inst.length + 1;
+			p.inst.push({ dx: p.xf.dx + snapv(18) * q, dy: p.xf.dy + snapv(18) * q, rot: p.xf.rot, s: p.xf.s, fx: p.xf.fx, fy: p.xf.fy });
+		}
+	}
+	function instXf(p, q) {
+		if (q === 0) return p.xf;
+		syncInstances(p);
+		const f = p.inst[q - 1];
+		if (f && f.s === undefined) { f.s = p.xf.s; f.fx = p.xf.fx; f.fy = p.xf.fy; }
+		return f || p.xf;
+	}
 	function ghostXf(p, q) {
-		const o = snapv(18) * q;
-		return 'translate(' + o + ' ' + o + ') ' + xfString(p);
+		return xfStr(p, instXf(p, q));
 	}
 
 	function makePartGroup(p) {
@@ -609,7 +734,8 @@
 
 	function refreshPartDisplay(p) {
 		content.querySelectorAll('.partgroup[data-part-id="' + p.id + '"]').forEach(g => {
-			g.setAttribute('transform', g.dataset.ghost ? ghostXf(p, +g.dataset.q) : xfString(p));
+			if (g.dataset.inst !== undefined) g.setAttribute('transform', xfStr(p, instXf(p, +g.dataset.inst)));
+			else g.setAttribute('transform', g.dataset.ghost ? ghostXf(p, +g.dataset.q) : xfString(p));
 		});
 	}
 
@@ -737,6 +863,7 @@
 		setStatus('Deleted ' + sel.length + ' part(s). Ctrl+Z to undo.');
 	}
 	function afterEdit() {
+		liveParts().forEach(syncInstances);
 		renderPartList();
 		if (state.mode === 'edit') {
 			renderEditView();
@@ -779,7 +906,7 @@
 
 	const undoStack = [], redoStack = [];
 	function snapshot() {
-		return liveParts().map(p => ({ id: p.id, name: p.name, qty: p.qty, deleted: p.deleted, xf: Object.assign({}, p.xf) }));
+		return liveParts().map(p => ({ id: p.id, name: p.name, qty: p.qty, deleted: p.deleted, xf: Object.assign({}, p.xf), inst: p.inst ? p.inst.map(i => Object.assign({}, i)) : null }));
 	}
 	function pushUndo() {
 		undoStack.push(snapshot());
@@ -795,6 +922,8 @@
 			const p = state.parts.find(q => q.id === s.id);
 			if (!p) continue;
 			p.name = s.name; p.qty = s.qty; p.deleted = s.deleted; p.xf = Object.assign({}, s.xf);
+			p.inst = s.inst ? s.inst.map(i => Object.assign({}, i)) : [];
+			syncInstances(p);
 			refreshPartGeom(p);
 		}
 		// parts created after the snapshot didn't exist then — remove them
@@ -1205,6 +1334,64 @@
 		return grew ? plus : raw(pts, -off);
 	}
 
+	/* bake the currently selected nest history generation into part positions, so
+	 * entering magnet mode continues from that optimization stage instead of the
+	 * old manual layout. Copies parked on sheets beyond the first are offset to the
+	 * right of the sheet canvas. Re-applies only when the selected generation or
+	 * history changes - manual arrange work in between is never stomped. */
+	function applyNestLayout() {
+		const h = state.history[state.histIndex];
+		if (!h || !h.raw || !h.raw.length) return '';
+		if (state.arrangeFromGen === state.histIndex && state.arrangeFromSeq === state.history.length) return '';
+		const sheetW = activeSheet().w * unitFactor();
+		const copies = [];
+		for (const p of liveParts()) {
+			if (p.qty < 1) continue;
+			for (let q = 0; q < p.qty; q++) {
+				const f = instXf(p, q);
+				const tp = p.els[0].poly.map(pt => xfPointF(p, f, pt));
+				copies.push({ p: p, q: q, f: f, tp: tp, area: Math.abs(polyArea(tp)), used: false });
+			}
+		}
+		let applied = 0;
+		for (const e of h.raw) {
+			let bestC = null, bestD = Infinity;
+			for (const c of copies) {
+				if (c.used) continue;
+				if (Math.abs(c.area - e.area) > Math.max(0.5, c.area * 0.002)) continue;
+				const d = Math.hypot(c.tp[0].x - e.x0, c.tp[0].y - e.y0);
+				if (d < bestD) { bestD = d; bestC = c; }
+			}
+			if (!bestC || bestD > 2.5) continue;
+			bestC.used = true;
+			// engine placement: placed = R(e.rotation)*baked + (e.x, e.y). Fold the
+			// pre-multiplied rotation into xf.rot; re-derive dx/dy from the pivot c0:
+			// A = R(rot)*diag(s*fx, s*fy), t = c0 + d - A*c0, d = t' - c0 + A'*c0
+			const f = bestC.f, c0 = bestC.p.c0;
+			const sfx = f.s * f.fx, sfy = f.s * f.fy;
+			const orad = f.rot * Math.PI / 180, ocs = Math.cos(orad), osn = Math.sin(orad);
+			const rrad = (e.rotation || 0) * Math.PI / 180, rcs = Math.cos(rrad), rsn = Math.sin(rrad);
+			const txo = c0.x + f.dx - (ocs * sfx * c0.x - osn * sfy * c0.y);
+			const tyo = c0.y + f.dy - (osn * sfx * c0.x + ocs * sfy * c0.y);
+			const ox = e.x + e.sheet * (sheetW + 80), oy = e.y;
+			const txn = rcs * txo - rsn * tyo + ox;
+			const tyn = rsn * txo + rcs * tyo + oy;
+			const ncs = Math.cos(orad + rrad), nsn = Math.sin(orad + rrad);
+			const nf = {
+				dx: txn - c0.x + (ncs * sfx * c0.x - nsn * sfy * c0.y),
+				dy: tyn - c0.y + (nsn * sfx * c0.x + ncs * sfy * c0.y),
+				rot: Math.round((((f.rot + (e.rotation || 0)) % 360) + 360) % 360 * 10) / 10,
+				s: f.s, fx: f.fx, fy: f.fy
+			};
+			if (bestC.q === 0) { Object.assign(bestC.p.xf, nf); refreshPartGeom(bestC.p); }
+			else if (bestC.p.inst[bestC.q - 1]) { Object.assign(bestC.p.inst[bestC.q - 1], nf); }
+			applied++;
+		}
+		state.arrangeFromGen = state.histIndex;
+		state.arrangeFromSeq = state.history.length;
+		return applied ? 'Layout set from GEN ' + (state.histIndex + 1) + ' (' + ((h.util || 0) * 100).toFixed(1) + '% util, ' + applied + ' copies placed)' : '';
+	}
+
 	function startArrange() {
 		if (state.mode !== 'edit') { setStatus('Arrange works in EDIT view.'); return; }
 		if (!window.Matter) { setStatus('Physics engine failed to load (CDN blocked?).'); return; }
@@ -1212,8 +1399,9 @@
 		setTool('select');
 		clearSelection(); renderPartList(); renderEditSelection(); syncSelectionPanel();
 		pushUndo();
+		liveParts().forEach(syncInstances);
+		const anote = applyNestLayout();
 		state.arranging = true;
-		renderEditView(); // re-render without ghost copies
 		$('arrangeBar').classList.remove('hidden');
 		$('btnArrange').classList.add('active');
 
@@ -1224,25 +1412,47 @@
 		const gap = Math.max(0, parseFloat(($('cfgSpacing') || {}).value) || state.cfg.spacing || 0) / 2;
 
 		const f = unitFactor(), sh = activeSheet();
+		const sheetB = { x: 0, y: 0, width: sh.w * f, height: sh.h * f };
+		const MAXB = 100; // physics body cap keeps 60fps; surplus copies stay parked
 		const bodies = [];
+		let made = 0, skipped = 0;
 		for (const p of liveParts()) {
 			if (p.qty < 1) continue;
-			// vertices in the unrotated pose, COM centered at c0 — then setAngle/
-			// setPosition reproduce the xf transform exactly
+			// vertices in the unrotated pose (scale/flip baked), then gap-inflated
 			const verts0 = p.els[0].poly.map(pt => ({
 				x: p.c0.x + (pt.x - p.c0.x) * p.xf.s * (p.xf.fx < 0 ? -1 : 1),
 				y: p.c0.y + (pt.y - p.c0.y) * p.xf.s * (p.xf.fy < 0 ? -1 : 1)
 			}));
-			let body = null;
-			try {
-				body = T.Bodies.fromVertices(p.c0.x, p.c0.y, [inflatePoly(verts0, gap)],
-					{ frictionAir: 0.06, friction: 0.5, restitution: 0.05, density: 0.001 }, true);
-			} catch (e) { body = null; }
-			if (!body || !body.parts || body.parts.length < 1) continue;
-			T.Body.setAngle(body, p.xf.rot * Math.PI / 180);
-			T.Body.setPosition(body, { x: p.c0.x + p.xf.dx, y: p.c0.y + p.xf.dy });
-			if (p.rotLock) T.Body.setInertia(body, Infinity);
-			bodies.push({ p: p, body: body });
+			const infl = inflatePoly(verts0, gap);
+			let cg = { x: 0, y: 0 };
+			infl.forEach(pt => { cg.x += pt.x; cg.y += pt.y; });
+			cg.x /= infl.length; cg.y /= infl.length;
+			// collision anchor: polygon centroid offset from the CAD pivot c0.
+			// fromVertices recenters bodies on their own centroid - translating the
+			// drift away keeps the collision shape exactly on the drawn outline
+			// (this drift is what let circles/shims sink into each other before).
+			const off0 = { x: cg.x - p.c0.x, y: cg.y - p.c0.y };
+			const avail = Math.max(0, Math.min(p.qty, MAXB - made));
+			skipped += p.qty - avail;
+			for (let q = 0; q < avail; q++) {
+				let body = null;
+				try {
+					body = T.Bodies.fromVertices(cg.x, cg.y, [infl],
+						{ frictionAir: 0.06, friction: 0.5, restitution: 0.05, density: 0.001 }, true);
+				} catch (e) { body = null; }
+				if (!body) continue;
+				T.Body.translate(body, { x: cg.x - body.position.x, y: cg.y - body.position.y });
+				const xf = instXf(p, q);
+				const th = xf.rot * Math.PI / 180;
+				T.Body.setAngle(body, th);
+				T.Body.setPosition(body, {
+					x: p.c0.x + xf.dx + off0.x * Math.cos(th) - off0.y * Math.sin(th),
+					y: p.c0.y + xf.dy + off0.x * Math.sin(th) + off0.y * Math.cos(th)
+				});
+				if (p.rotLock) T.Body.setInertia(body, Infinity);
+				bodies.push({ p: p, body: body, q: q, off0: off0 });
+				made++;
+			}
 		}
 		if (!bodies.length) {
 			state.arranging = false;
@@ -1251,15 +1461,30 @@
 			setStatus('No usable part outlines for physics.');
 			return;
 		}
+		// per-part instance list drives arrange rendering (one body per qty copy)
+		for (const p of liveParts()) p._arrInst = [];
+		bodies.forEach(o => o.p._arrInst.push(o.q));
 
-		const walls = arrWalls({ x: 0, y: 0, width: sh.w * f, height: sh.h * f });
+		const walls = arrWalls(sheetB);
 		T.Composite.add(engine.world, walls);
 		bodies.forEach(o => T.Composite.add(engine.world, o.body));
 
 		const A = arrange = {
-			engine: engine, bodies: bodies, walls: walls, boundary: null,
-			grabbed: null, target: null, raf: 0, last: performance.now()
+			engine: engine, bodies: bodies, walls: walls, boundary: null, sheetB: sheetB,
+			grabbed: null, target: null, raf: 0, last: performance.now(), frames: 0
 		};
+		renderEditView();
+
+		function sheetEstimate() {
+			// OptiCutter-style planning readout: how many sheets of this size the job needs
+			const B = A.boundary || A.sheetB;
+			let area = 0;
+			bodies.forEach(o => { area += o.p.tOuterArea; });
+			const est = Math.max(1, Math.ceil(area / (B.width * B.height) / 0.82));
+			const el = $('arrSheets');
+			if (el) el.textContent = '≈ ' + est + ' × ' + Math.round(B.width) + '×' + Math.round(B.height) + ' u · ' + Math.round(100 * area / (est * B.width * B.height)) + '% yield';
+			return est;
+		}
 
 		function tick(now) {
 			if (!state.arranging || arrange !== A) return;
@@ -1290,30 +1515,38 @@
 			T.Engine.update(engine, dt);
 			for (const o of bodies) {
 				if (o.body.isSleeping) continue;
-				o.p.xf.rot = Math.round(o.body.angle * 180 / Math.PI * 10) / 10;
-				o.p.xf.dx = o.body.position.x - o.p.c0.x;
-				o.p.xf.dy = o.body.position.y - o.p.c0.y;
-				refreshPartGeom(o.p);
+				const b = o.body, th = b.angle;
+				const cx = b.position.x - (o.off0.x * Math.cos(th) - o.off0.y * Math.sin(th));
+				const cy = b.position.y - (o.off0.x * Math.sin(th) + o.off0.y * Math.cos(th));
+				const xf = o.q === 0 ? o.p.xf : o.p.inst[o.q - 1];
+				xf.rot = Math.round(th * 180 / Math.PI * 10) / 10;
+				xf.dx = cx - o.p.c0.x;
+				xf.dy = cy - o.p.c0.y;
+				if (o.q === 0) refreshPartGeom(o.p);
 				refreshPartDisplay(o.p);
 			}
+			if (++A.frames % 20 === 0) sheetEstimate();
 			A.raf = requestAnimationFrame(tick);
 		}
 		A.raf = requestAnimationFrame(tick);
-		setStatus('ARRANGE — drag parts: they push aside and respect the ' + fmt(gap * 2) + ' u gap. Magnet/gravity/boundary in the bar. Esc or ✓ Done to finish.');
+		const est = sheetEstimate();
+		setStatus((anote ? anote + ' — ' : '') + 'ARRANGE — all ' + made + ' copies live' + (skipped ? ' (' + skipped + ' over the 100-body physics cap stay parked)' : '') + ': they collide at your ' + fmt(gap * 2) + ' u gap and respect the sheet walls. Est. ' + est + ' sheet(s). Esc or ✓ Done to finish.');
 	}
 
 	function stopArrange() {
 		if (!state.arranging || !arrange) return;
+		const B = arrange.boundary;
 		cancelAnimationFrame(arrange.raf);
 		arrange = null;
 		state.arranging = false;
+		liveParts().forEach(p => { delete p._arrInst; });
 		arrBoundaryArm = false;
 		arrRect = null;
 		$('arrangeBar').classList.add('hidden');
 		$('arrangeBar').classList.remove('boundary-draw');
 		$('btnArrange').classList.remove('active');
 		renderEditView();
-		setStatus('Arrange finished — positions baked in. Ctrl+Z reverts.');
+		setStatus('Arrange finished — positions baked in for nesting & export. Ctrl+Z reverts.' + (B ? ' Boundary ' + Math.round(B.width) + '×' + Math.round(B.height) + ' u was used.' : ''));
 	}
 
 	// capture-phase pointer handlers: they pre-empt the editor's own handlers
@@ -1479,7 +1712,7 @@
 			if (p.qty < 1) continue;
 			for (let q = 0; q < p.qty; q++) {
 				// wrapper group carries the user's CAD transform; engine bakes it on import
-				s += '<g transform="' + xfString(p) + '">';
+				s += '<g transform="' + xfStr(p, instXf(p, q)) + '">';
 				for (let mi = 0; mi < p.els.length; mi++) {
 					s += ser.serializeToString(p.els[mi].el.cloneNode(true));
 					seq.push({ partId: p.id, isOuter: mi === 0 });
@@ -1594,9 +1827,9 @@
 				if (state.history.length === 0) setStatus('Computing no-fit polygons (NFP geometry) — first generation takes the longest…');
 				else setStatus('Optimizing: ' + (state.history.length + 1) + ' improvements so far — layouts keep improving until you press Stop.');
 			},
-			function (svgList, utilization, placedCount) {
+			function (svgList, utilization, placedCount, rawPlacements) {
 				if (!svgList || !svgList.length) return;
-				state.history.push({ sheets: svgList, util: utilization || 0, placed: placedCount || '' });
+				state.history.push({ sheets: svgList, util: utilization || 0, placed: placedCount || '', raw: rawPlacements || null });
 				state.histIndex = state.history.length - 1;
 				state.live = true;
 				$('histSlider').max = state.history.length - 1;

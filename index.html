@@ -143,6 +143,15 @@
 			<section class="panel grow">
 				<h2><svg viewBox="0 0 24 24" width="13" height="13"><path d="M12 2l8.66 5v10L12 22l-8.66-5V7z" fill="none" stroke="currentColor" stroke-width="2"/></svg> PARTS <span id="partCount" class="badge">0</span></h2>
 				<ul id="partList" class="partlist"></ul>
+				<div id="quickAdd" class="quickadd">
+					<input id="qaW" type="number" min="0" step="any" placeholder="W">
+					<span class="qax">×</span>
+					<input id="qaH" type="number" min="0" step="any" placeholder="H">
+					<span class="qax">×</span>
+					<input id="qaQ" type="number" min="1" step="1" value="1" title="Quantity">
+					<button id="qaTable" class="mini" title="Cut-list table entry (OptiCutter style)">📋 List</button>
+					<button id="qaAdd" class="mini accent">+ Add</button>
+				</div>
 				<div id="partsEmpty" class="empty">
 					No parts loaded.<br>Import SVG/DXF, drop files on the canvas, or load the sample.
 				</div>
@@ -173,6 +182,7 @@
 						<label class="abopt"><input type="checkbox" id="arrMagnet" checked> Magnet</label>
 						<label class="abopt"><input type="checkbox" id="arrGravity"> Gravity</label>
 						<button id="arrBoundary" class="mini">⛶ Boundary</button>
+						<span id="arrSheets" class="abest" title="Estimated sheets of this size needed for all parts"></span>
 						<button id="arrDone" class="mini accent">✓ Done</button>
 					</div>
 					<div id="crosshairV" class="crosshair hidden"></div>
@@ -398,6 +408,29 @@
 </div>
 
 <!-- ============ SMART OPTIMIZER MODAL ============ -->
+<!-- ============ CUT LIST TABLE MODAL (optional simple entry) ============ -->
+<div id="tableModal" class="modal hidden">
+	<div class="modalbox wide">
+		<div class="modalhead"><h3>📋 Cut list — simple table entry</h3><button class="modalclose" data-close>✕</button></div>
+		<div class="modalbody">
+			<p class="modalnote">Spreadsheet-style entry like OptiCutter / CutList Optimizer — optional: imports, drawing and the canvas still work exactly as before. Apply creates named rectangle parts and updates the stock sheet size.</p>
+			<table class="cuttable"><thead><tr><th>Stock width</th><th>Stock height</th><th></th></tr></thead>
+				<tbody><tr>
+					<td><input id="tbStockW" type="number" min="1" step="any"></td>
+					<td><input id="tbStockH" type="number" min="1" step="any"></td>
+					<td class="tblunit" id="tbUnit"></td>
+				</tr></tbody></table>
+			<table class="cuttable"><thead><tr><th>#</th><th>Name</th><th>W</th><th>H</th><th>Qty</th><th></th></tr></thead>
+				<tbody id="tbPartsBody"></tbody></table>
+			<button id="tbAddRow" class="mini">+ Row</button>
+		</div>
+		<div class="modalfoot">
+			<button id="tbApply" class="mini accent">✓ Apply to canvas</button>
+			<span class="spacer"></span>
+			<button class="mini" data-close>Close</button>
+		</div>
+	</div>
+</div>
 <div id="optimizerModal" class="modal hidden">
 	<div class="modalbox">
 		<div class="modalhead"><h3>✨ Smart Sheet Optimizer</h3><button class="modalclose" data-close>✕</button></div>
