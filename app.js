@@ -512,6 +512,8 @@
 		const sw = parseFloat($('tbStockW').value), shh = parseFloat($('tbStockH').value);
 		const rows = tbRows.filter(r => r.w > 0 && r.h > 0 && r.qty > 0);
 		if (!rows.length) { setStatus('Cut list: add at least one row with W, H and qty.'); return; }
+		if (state.running) stopNesting();
+		if (state.mode !== 'edit') backToEdit();
 		pushUndo();
 		if (sw > 0 && shh > 0) { activeSheet().w = sw; activeSheet().h = shh; renderSheetsMeta(); }
 		for (const p of state.parts) if (p.fromTable) p.deleted = true; // re-apply replaces table parts, imports stay
@@ -529,6 +531,8 @@
 		const w = parseFloat($('qaW').value), h = parseFloat($('qaH').value);
 		const q = Math.max(1, Math.round(parseFloat($('qaQ').value) || 1));
 		if (!(w > 0) || !(h > 0)) { setStatus('Quick add: enter width and height in sheet units.'); return; }
+		if (state.running) stopNesting();
+		if (state.mode !== 'edit') backToEdit();
 		const name = 'Rect ' + (++uidName);
 		const p = addRectPart(name, w, h, q);
 		if (!p) { setStatus('Quick add failed.'); return; }
@@ -1393,7 +1397,10 @@
 	}
 
 	function startArrange() {
-		if (state.mode !== 'edit') { setStatus('Arrange works in EDIT view.'); return; }
+		// any point in the flow: a live nest lands in RESULT (history kept), a result
+		// view returns to edit - then arrange continues from the selected generation
+		if (state.running) stopNesting();
+		if (state.mode !== 'edit') backToEdit();
 		if (!window.Matter) { setStatus('Physics engine failed to load (CDN blocked?).'); return; }
 		if (!liveParts().length) { setStatus('Import or draw a part first.'); return; }
 		setTool('select');
