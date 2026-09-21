@@ -404,10 +404,7 @@
 					}
 				}
 				else{
-					// WASM fast path: exact convex-convex NFP (minkowski merge)
-					if (typeof self !== 'undefined' && self.NfpKernel && self.NfpKernel.supported){
-						nfp = self.NfpKernel.outerNfp(A, B);
-					}
+					// DISABLED: kernel computed A+B minkowski sum, not A+(-B) NFP -> overlaps
 					if (!nfp){
 						nfp = GeometryUtil.noFitPolygon(A,B,false,searchEdges);
 					}
