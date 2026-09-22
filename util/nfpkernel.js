@@ -58,11 +58,37 @@
 		supported: !!exp,
 		isConvex: isConvex,
 		nfpConvex: nfpConvex,
-		// outer NFP for a pair when both polygons are convex, else null (JS path)
-		outerNfp: function (A, B) {
-			if (!exp || !isConvex(A) || !isConvex(B)) return null;
-			var poly = nfpConvex(A, B);
-			return poly ? [poly] : null;
-		}
+		// Correct convex-convex outer NFP: Minkowski sum A + (-B) by edge merge.
+		// Replaces the wrong WASM attempt (it returned A+B, not the NFP).
+		outerNfp: (function () {
+			function pa(p){ var a=0,i,j; for(i=0,j=p.length-1;i<p.length;j=i++) a+=p[j].x*p[i].y-p[i].x*p[j].y; return a/2; }
+			function ccw(p){ p=p.slice(); if(p.length>1 && p[0].x===p[p.length-1].x && p[0].y===p[p.length-1].y) p.pop(); if(pa(p)<0) p.reverse(); return p; }
+			function bottomStart(p){ var k=0,i; for(i=1;i<p.length;i++){ if(p[i].y<p[k].y || (p[i].y===p[k].y && p[i].x<p[k].x)) k=i; } return p.slice(k).concat(p.slice(0,k)); }
+			function msum(A,B){
+				A=bottomStart(A); B=bottomStart(B);
+				var out=[], i=0, j=0, n=A.length, m=B.length;
+				while(i<n || j<m){
+					var av=A[i%n], bv=B[j%m], v={x:av.x+bv.x, y:av.y+bv.y};
+					if(!out.length || Math.abs(v.x-out[out.length-1].x)>1e-9 || Math.abs(v.y-out[out.length-1].y)>1e-9) out.push(v);
+					if(i>=n){ j++; continue; }
+					if(j>=m){ i++; continue; }
+					var ax=A[(i+1)%n].x-av.x, ay=A[(i+1)%n].y-av.y;
+					var bx=B[(j+1)%m].x-bv.x, by=B[(j+1)%m].y-bv.y;
+					var cr=ax*by-ay*bx;
+					if(cr>1e-9 || (Math.abs(cr)<=1e-9 && (ax*bx+ay*by)>=0)) i++;
+					else if(cr<-1e-9) j++;
+					else { i++; j++; }
+				}
+				if(out.length>1 && Math.abs(out[0].x-out[out.length-1].x)<1e-9 && Math.abs(out[0].y-out[out.length-1].y)<1e-9) out.pop();
+				return out;
+			}
+			return function (A, B) {
+				if (!isConvex(A) || !isConvex(B)) return null;
+				// first-vertex-anchored like the JS path: NFP tracks B[0]; reflect B about its first vertex
+				var R = B.map(function (p) { return { x: B[0].x - p.x, y: B[0].y - p.y }; });
+				var poly = msum(ccw(A), ccw(R));
+				return poly.length > 2 ? [poly] : null;
+			};
+		})(),
 	};
 })(typeof self !== 'undefined' ? self : this);
