@@ -1767,40 +1767,6 @@
 		return { str: s, W: W, H: H, total: total, seq: seq };
 	}
 
-	// tag cleaned job elements with per-part metadata (rotation lock, priority)
-	// so the patched engine can honor them. Elements are matched by geometry
-	// (first vertex + area of the transformed outer polygon) — robust against
-	// element rewrites/reordering inside the parser's clean pass.
-	function tagJobMeta(svgEl, seq) {
-		const byId = new Map(liveParts().map(p => [p.id, p]));
-		const need = seq.filter(s => {
-			const p = byId.get(s.partId);
-			return s.isOuter && p && (p.rotLock || p.priority);
-		});
-		if (!need.length) return true;
-		const kids = Array.from(svgEl.children);
-		let tagged = 0;
-		for (const s of need) {
-			const p = byId.get(s.partId);
-			for (const k of kids) {
-				if (!k.getAttribute || k.getAttribute('data-dn-tag')) continue;
-				let poly = null;
-				try { poly = SvgParser.polygonify(k); } catch (e) { poly = null; }
-				if (!poly || poly.length < 3) continue;
-				const areaOk = Math.abs(Math.abs(GeometryUtil.polygonArea(poly)) - p.tOuterArea) < Math.max(0.5, p.tOuterArea * 0.002);
-				const ptOk = Math.abs(poly[0].x - p.tpoly[0].x) < 0.75 && Math.abs(poly[0].y - p.tpoly[0].y) < 0.75;
-				if (!areaOk || !ptOk) continue;
-				if (p.rotLock) k.setAttribute('data-norot', '1');
-				if (p.priority) k.setAttribute('data-priority', String(p.priority));
-				k.setAttribute('data-dn-tag', '1');
-				tagged++;
-				break;
-			}
-		}
-		if (tagged < need.length) console.warn('meta tagging partial:', tagged, '/', need.length);
-		return tagged === need.length;
-	}
-
 	function readCfg() {
 		state.cfg = {
 			spacing: Math.max(0, parseFloat($('cfgSpacing').value) || 0),
@@ -1838,7 +1804,6 @@
 		let svgEl;
 		try { svgEl = SvgNest.parsesvg(job.str); }
 		catch (err) { console.error(err); setStatus('Failed to build nesting job: ' + err.message); return; }
-		tagJobMeta(svgEl, job.seq);
 		const bin = svgEl.querySelector('#bin');
 		if (!bin) { setStatus('Internal error: bin missing after parse.'); return; }
 		SvgNest.setbin(bin);
@@ -1869,9 +1834,9 @@
 				if (state.history.length === 0) setStatus('Computing no-fit polygons (NFP geometry) — first generation takes the longest…');
 				else setStatus('Optimizing: ' + (state.history.length + 1) + ' improvements so far — layouts keep improving until you press Stop.');
 			},
-			function (svgList, utilization, placedCount, rawPlacements) {
+			function (svgList, utilization, placedCount) {
 				if (!svgList || !svgList.length) return;
-				state.history.push({ sheets: svgList, util: utilization || 0, placed: placedCount || '', raw: rawPlacements || null });
+				state.history.push({ sheets: svgList, util: utilization || 0, placed: placedCount || '', raw: null });
 				state.histIndex = state.history.length - 1;
 				state.live = true;
 				$('histSlider').max = state.history.length - 1;
@@ -2859,12 +2824,7 @@
 	renderEditView();
 	updateSpacingHint();
 	updateJobStats();
-	if (window.NfpKernel && window.NfpKernel.supported) {
-		$('statusKernel').textContent = 'NFP: WASM ⚡';
-		$('statusKernel').style.color = 'var(--green)';
-	} else {
-		$('statusKernel').textContent = 'NFP: JS';
-	}
+	$('statusKernel').textContent = 'NFP: Deepnest JS';
 	setStatus('Ready. Import SVG/DXF or drop files on the canvas — then press Optimize or Nest.');
 
 	loadSample();
@@ -2885,6 +2845,6 @@
 		getArrange: () => arrange,
 		arrDebug: () => ({ arm: arrBoundaryArm, rect: arrRect, ptr: arrPtr, boundary: arrange && arrange.boundary, arranging: state.arranging }),
 		updateJobStats, computeJobStats, openOptimizer, loadJob, saveJob, showReport, computeRemnants,
-		buildJobSvgString, tagJobMeta
+		buildJobSvgString
 	};
 })();

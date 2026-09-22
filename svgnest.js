@@ -48,8 +48,8 @@
 			tree = null;
 			
 			// parse svg
-			svg = SvgParser.load(null, svgstring, 72, null);
-			svg = SvgParser.clean(false);
+			svg = SvgParser.load(svgstring);
+			svg = SvgParser.clean();
 			
 			tree = this.getParts(svg.children);
 
@@ -101,7 +101,7 @@
 				config.mutationRate = parseInt(c.mutationRate);
 			}
 			
-			SvgParser.config({ tolerance: config.curveTolerance, endpointTolerance: 2});
+			SvgParser.config({ tolerance: config.curveTolerance});
 			
 			best = null;
 			nfpCache = {};
@@ -253,8 +253,6 @@
 
 				// seed with decreasing area
 				adam.sort(function(a, b){
-					var pa = a.priority || 0, pb = b.priority || 0;
-					if(pa !== pb){ return pb - pa; }
 					return Math.abs(GeometryUtil.polygonArea(b)) - Math.abs(GeometryUtil.polygonArea(a));
 				});
 				
@@ -311,7 +309,7 @@
 				}
 			}
 			
-			// Match upstream Deepnest: cache NFPs for one generation only.
+			// only keep cache for one cycle
 			nfpCache = newCache;
 			
 			var worker = new PlacementWorker(binPolygon, placelist.slice(0), ids, rotations, config, nfpCache);
@@ -457,7 +455,7 @@
 							var key = JSON.stringify(Nfp.key);
 							nfpCache[key] = Nfp.value;
 						}
-				}
+					}
 				}
 				worker.nfpCache = nfpCache;
 				
@@ -504,23 +502,7 @@
 								numPlacedParts++;
 							}
 						}
-						var raw = [];
-						var sigCache = {};
-						for(i=0; i<best.placements.length; i++){
-							for(var j2=0; j2<best.placements[i].length; j2++){
-								var pl = best.placements[i][j2];
-								var tn = tree[pl.id];
-								if(!tn || tn.source === undefined) continue;
-								if(!sigCache[tn.source]){
-									var sigPoly = SvgParser.polygonify(parts[tn.source]);
-									sigCache[tn.source] = (sigPoly && sigPoly.length) ? { area: Math.abs(GeometryUtil.polygonArea(sigPoly)), x0: sigPoly[0].x, y0: sigPoly[0].y } : null;
-								}
-								var sig = sigCache[tn.source];
-								if(!sig) continue;
-								raw.push({ x: pl.x, y: pl.y, rotation: pl.rotation, sheet: i, area: sig.area, x0: sig.x0, y0: sig.y0 });
-							}
-						}
-						displayCallback(self.applyPlacement(best.placements), placedArea/totalArea, numPlacedParts+'/'+numParts, raw);
+						displayCallback(self.applyPlacement(best.placements), placedArea/totalArea, numPlacedParts+'/'+numParts);
 					}
 					else{
 						displayCallback();
@@ -548,9 +530,7 @@
 				
 				// todo: warn user if poly could not be processed and is excluded from the nest
 				if(poly && poly.length > 2 && Math.abs(GeometryUtil.polygonArea(poly)) > config.curveTolerance*config.curveTolerance){
-					poly.source = i;
-					poly.norot = !!(paths[i].getAttribute && paths[i].getAttribute('data-norot') === '1');
-					poly.priority = parseInt(paths[i].getAttribute && paths[i].getAttribute('data-priority')) || 0;
+					poly.source = i;					
 					polygons.push(poly);
 				}
 			}
@@ -783,7 +763,7 @@
 	
 	// returns a random angle of insertion
 	GeneticAlgorithm.prototype.randomAngle = function(part){
-		if(part.norot){ return 0; }
+		
 		var angleList = [];
 		for(var i=0; i<Math.max(this.config.rotations,1); i++){
 			angleList.push(i*(360/this.config.rotations));
@@ -833,11 +813,6 @@
 			if(rand < 0.01*this.config.mutationRate){
 				clone.rotation[i] = this.randomAngle(clone.placement[i]);
 			}
-		}
-		
-		// enforce rotation locks after crossover/mutation
-		for(i=0; i<clone.placement.length; i++){
-			if(clone.placement[i].norot){ clone.rotation[i] = 0; }
 		}
 		
 		return clone;
