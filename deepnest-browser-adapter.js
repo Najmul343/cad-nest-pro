@@ -1,8 +1,8 @@
 /*!
- * Browser adapter for the unmodified Jack000/Deepnest engine.
+ * Browser adapter for the unmodified Jack000/SVGnest engine.
  *
- * Keep Deepnest's engine files byte-identical. This shim only adapts the
- * parser call signature expected by main/svgnest.js when running in-browser.
+ * Keep SVGnest's engine files byte-identical. This shim only adapts the
+ * parser helpers expected by svgnest.js while CAD-Nest keeps its newer parser.
  */
 (function(root){
 	'use strict';
@@ -12,10 +12,19 @@
 	}
 
 	var load = root.SvgParser.load;
+	var lastRoot = null;
 	root.SvgParser.load = function(dirpath, svgString, scale, scalingFactor){
 		if(arguments.length === 1 && typeof dirpath === 'string'){
-			return load(null, dirpath, 72, null);
+			lastRoot = load(null, dirpath, 72, null);
+			return lastRoot;
 		}
-		return load(dirpath, svgString, scale, scalingFactor);
+		lastRoot = load(dirpath, svgString, scale, scalingFactor);
+		return lastRoot;
 	};
+
+	if(!root.SvgParser.getStyle){
+		root.SvgParser.getStyle = function(){
+			return lastRoot ? lastRoot.querySelector('style') : null;
+		};
+	}
 })(this);

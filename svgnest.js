@@ -5,13 +5,17 @@
  
 (function(root){
 	'use strict';
-	
+
 	root.SvgNest = new SvgNest();
 	
 	function SvgNest(){
 		var self = this;
 		
 		var svg = null;
+		
+		// keep a reference to any style nodes, to maintain color/fill info
+		this.style = null;
+		
 		var parts = null;
 		
 		var tree = null;
@@ -49,9 +53,12 @@
 			
 			// parse svg
 			svg = SvgParser.load(svgstring);
+			
+			this.style = SvgParser.getStyle();
+
 			svg = SvgParser.clean();
 			
-			tree = this.getParts(svg.children);
+			tree = this.getParts(svg.childNodes);
 
 			//re-order elements such that deeper elements are on top, so they can be moused over
 			function zorder(paths){
@@ -101,6 +108,14 @@
 				config.mutationRate = parseInt(c.mutationRate);
 			}
 			
+			if('useHoles' in c){
+				config.useHoles = !!c.useHoles;
+			}
+			
+			if('exploreConcave' in c){
+				config.exploreConcave = !!c.exploreConcave;
+			}
+			
 			SvgParser.config({ tolerance: config.curveTolerance});
 			
 			best = null;
@@ -118,7 +133,7 @@
 				return false;
 			}
 			
-			parts = Array.prototype.slice.call(svg.children);
+			parts = Array.prototype.slice.call(svg.childNodes);
 			var binindex = parts.indexOf(bin);
 			
 			if(binindex >= 0){
@@ -140,8 +155,8 @@
 						Array.prototype.splice.apply(t[i], [0, t[i].length].concat(offsetpaths[0]));
 					}
 					
-					if(t[i].children && t[i].children.length > 0){
-						offsetTree(t[i].children, -offset, offsetFunction);
+					if(t[i].childNodes && t[i].childNodes.length > 0){
+						offsetTree(t[i].childNodes, -offset, offsetFunction);
 					}
 				}
 			}
@@ -326,6 +341,7 @@
 			p.require('matrix.js');
 			p.require('geometryutil.js');
 			p.require('placementworker.js');
+			p.require('clipper.js');
 			
 			var self = this;
 			var spawncount = 0;
@@ -370,8 +386,12 @@
 					}
 				}
 				else{
-					nfp = GeometryUtil.noFitPolygon(A,B,false,searchEdges);
-					
+					if(searchEdges){
+						nfp = GeometryUtil.noFitPolygon(A,B,false,searchEdges);
+					}
+					else{
+						nfp = minkowskiDifference(A,B);
+					}
 					// sanity check
 					if(!nfp || nfp.length == 0){
 						log('NFP Error: ', pair.key);
@@ -413,16 +433,16 @@
 					}
 					
 					// generate nfps for children (holes of parts) if any exist
-					if(useHoles && A.children && A.children.length > 0){
+					if(useHoles && A.childNodes && A.childNodes.length > 0){
 						var Bbounds = GeometryUtil.getPolygonBounds(B);
 						
-						for(var i=0; i<A.children.length; i++){
-							var Abounds = GeometryUtil.getPolygonBounds(A.children[i]);
+						for(var i=0; i<A.childNodes.length; i++){
+							var Abounds = GeometryUtil.getPolygonBounds(A.childNodes[i]);
 
 							// no need to find nfp if B's bounding box is too big
 							if(Abounds.width > Bbounds.width && Abounds.height > Bbounds.height){
 							
-								var cnfp = GeometryUtil.noFitPolygon(A.children[i],B,true,searchEdges);
+								var cnfp = GeometryUtil.noFitPolygon(A.childNodes[i],B,true,searchEdges);
 								// ensure all interior NFPs have the same winding direction
 								if(cnfp && cnfp.length > 0){
 									for(var j=0; j<cnfp.length; j++){
@@ -442,6 +462,60 @@
 					if(typeof console !== "undefined") {
 						console.log.apply(console,arguments);
 					}
+				}
+				
+				function toClipperCoordinates(polygon){
+					var clone = [];
+					for(var i=0; i<polygon.length; i++){
+						clone.push({
+							X: polygon[i].x,
+							Y: polygon[i].y
+						});
+					}
+	
+					return clone;
+				};
+				
+				function toNestCoordinates(polygon, scale){
+					var clone = [];
+					for(var i=0; i<polygon.length; i++){
+						clone.push({
+							x: polygon[i].X/scale,
+							y: polygon[i].Y/scale
+						});
+					}
+	
+					return clone;
+				};
+				
+				function minkowskiDifference(A, B){
+					var Ac = toClipperCoordinates(A);
+					ClipperLib.JS.ScaleUpPath(Ac, 10000000);
+					var Bc = toClipperCoordinates(B);
+					ClipperLib.JS.ScaleUpPath(Bc, 10000000);
+					for(var i=0; i<Bc.length; i++){
+						Bc[i].X *= -1;
+						Bc[i].Y *= -1;
+					}
+					var solution = ClipperLib.Clipper.MinkowskiSum(Ac, Bc, true);
+					var clipperNfp;
+		
+					var largestArea = null;
+					for(i=0; i<solution.length; i++){
+						var n = toNestCoordinates(solution[i], 10000000);
+						var sarea = GeometryUtil.polygonArea(n);
+						if(largestArea === null || largestArea > sarea){
+							clipperNfp = n;
+							largestArea = sarea;
+						}
+					}
+		
+					for(var i=0; i<clipperNfp.length; i++){
+						clipperNfp[i].x += B[0].x;
+						clipperNfp[i].y += B[0].y;
+					}
+		
+					return [clipperNfp];
 				}
 				
 				return {key: pair.key, value: nfp};
@@ -502,7 +576,7 @@
 								numPlacedParts++;
 							}
 						}
-						displayCallback(self.applyPlacement(best.placements), placedArea/totalArea, numPlacedParts+'/'+numParts);
+						displayCallback(self.applyPlacement(best.placements), placedArea/totalArea, numPlacedParts, numParts);
 					}
 					else{
 						displayCallback();
@@ -704,8 +778,9 @@
 						for(k=0; k<flattened.length; k++){
 							
 							var c = clone[flattened[k].source];
-							if(flattened[k].hole){
-								c.setAttribute('class','hole');
+							// add class to indicate hole
+							if(flattened[k].hole && (!c.getAttribute('class') || c.getAttribute('class').indexOf('hole') < 0)){
+								c.setAttribute('class',c.getAttribute('class')+' hole');
 							}
 							partgroup.appendChild(c);
 						}
@@ -820,7 +895,7 @@
 	
 	// single point crossover
 	GeneticAlgorithm.prototype.mate = function(male, female){
-		var cutpoint = Math.round(Math.min(Math.max(Math.random(), 0.1), 0.9)*(male.length-1));
+		var cutpoint = Math.round(Math.min(Math.max(Math.random(), 0.1), 0.9)*(male.placement.length-1));
 		
 		var gene1 = male.placement.slice(0,cutpoint);
 		var rot1 = male.rotation.slice(0,cutpoint);
@@ -910,4 +985,4 @@
 		return pop[0];
 	}
 	
-})(this);
+})(window);

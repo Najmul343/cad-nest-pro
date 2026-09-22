@@ -1834,9 +1834,10 @@
 				if (state.history.length === 0) setStatus('Computing no-fit polygons (NFP geometry) — first generation takes the longest…');
 				else setStatus('Optimizing: ' + (state.history.length + 1) + ' improvements so far — layouts keep improving until you press Stop.');
 			},
-			function (svgList, utilization, placedCount) {
+			function (svgList, utilization, placedCount, totalCount) {
 				if (!svgList || !svgList.length) return;
-				state.history.push({ sheets: svgList, util: utilization || 0, placed: placedCount || '', raw: null });
+				const placedLabel = totalCount !== undefined ? (placedCount + '/' + totalCount) : (placedCount || '');
+				state.history.push({ sheets: svgList, util: utilization || 0, placed: placedLabel, raw: null });
 				state.histIndex = state.history.length - 1;
 				state.live = true;
 				$('histSlider').max = state.history.length - 1;
@@ -2824,7 +2825,7 @@
 	renderEditView();
 	updateSpacingHint();
 	updateJobStats();
-	$('statusKernel').textContent = 'NFP: Deepnest JS';
+	$('statusKernel').textContent = 'NFP: SVGnest JS';
 	setStatus('Ready. Import SVG/DXF or drop files on the canvas — then press Optimize or Nest.');
 
 	loadSample();
