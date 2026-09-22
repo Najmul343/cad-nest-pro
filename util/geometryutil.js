@@ -18,7 +18,7 @@
 		}
 		return Math.abs(a - b) < tolerance;
 	}
-		
+	
 	// returns true if points are within the given distance
 	function _withinDistance(p1, p2, distance){
 		var dx = p1.x-p2.x;
@@ -50,14 +50,11 @@
 	
 	// returns true if p lies on the line segment defined by AB, but not at any endpoints
 	// may need work!
-	function _onSegment(A,B,p, tolerance){
-		if(!tolerance){
-			tolerance = TOL;
-		}
+	function _onSegment(A,B,p){
 				
 		// vertical line
-		if(_almostEqual(A.x, B.x, tolerance) && _almostEqual(p.x, A.x, tolerance)){
-			if(!_almostEqual(p.y, B.y, tolerance) && !_almostEqual(p.y, A.y, tolerance) && p.y < Math.max(B.y, A.y, tolerance) && p.y > Math.min(B.y, A.y, tolerance)){
+		if(_almostEqual(A.x, B.x) && _almostEqual(p.x, A.x)){
+			if(!_almostEqual(p.y, B.y) && !_almostEqual(p.y, A.y) && p.y < Math.max(B.y, A.y) && p.y > Math.min(B.y, A.y)){
 				return true;
 			}
 			else{
@@ -66,8 +63,8 @@
 		}
 
 		// horizontal line
-		if(_almostEqual(A.y, B.y, tolerance) && _almostEqual(p.y, A.y, tolerance)){
-			if(!_almostEqual(p.x, B.x, tolerance) && !_almostEqual(p.x, A.x, tolerance) && p.x < Math.max(B.x, A.x) && p.x > Math.min(B.x, A.x)){
+		if(_almostEqual(A.y, B.y) && _almostEqual(p.y, A.y)){
+			if(!_almostEqual(p.x, B.x) && !_almostEqual(p.x, A.x) && p.x < Math.max(B.x, A.x) && p.x > Math.min(B.x, A.x)){
 				return true;
 			}
 			else{
@@ -82,13 +79,13 @@
 		
 		
 		// exclude end points
-		if((_almostEqual(p.x, A.x, tolerance) && _almostEqual(p.y, A.y, tolerance)) || (_almostEqual(p.x, B.x, tolerance) && _almostEqual(p.y, B.y, tolerance))){
+		if((_almostEqual(p.x, A.x) && _almostEqual(p.y, A.y)) || (_almostEqual(p.x, B.x) && _almostEqual(p.y, B.y))){
 			return false;
 		}
 		
 		var cross = (p.y - A.y) * (B.x - A.x) - (p.x - A.x) * (B.y - A.y);
 		
-		if(Math.abs(cross) > tolerance){
+		if(Math.abs(cross) > TOL){
 			return false;
 		}
 		
@@ -96,7 +93,7 @@
 		
 		
 		
-		if(dot < 0 || _almostEqual(dot, 0, tolerance)){
+		if(dot < 0 || _almostEqual(dot, 0)){
 			return false;
 		}
 		
@@ -104,7 +101,7 @@
 		
 		
 		
-		if(dot > len2 || _almostEqual(dot, len2, tolerance)){
+		if(dot > len2 || _almostEqual(dot, len2)){
 			return false;
 		}
 		
@@ -160,18 +157,6 @@
 		lineIntersect: _lineIntersect,
 		
 		almostEqual: _almostEqual,
-		almostEqualPoints: function(a, b, tolerance){
-			if(!tolerance){
-				tolerance = TOL
-			}
-			var aa = a.x-b.x;
-			var bb = a.y-b.y;
-
-			if(((aa*aa) + (bb*bb)) < (tolerance * tolerance)){
-				return true;
-			}
-			return false;
-		},
 		
 		// Bezier algos from http://algorithmist.net/docs/subdivision.pdf
 		QuadraticBezier: {
@@ -536,13 +521,9 @@
 		},
 		
 		// return true if point is in the polygon, false if outside, and null if exactly on a point or edge
-		pointInPolygon: function(point, polygon, tolerance){
+		pointInPolygon: function(point, polygon){
 			if(!polygon || polygon.length < 3){
 				return null;
-			}
-			
-			if(!tolerance){
-				tolerance = TOL;
 			}
 			
 			var inside = false;
@@ -555,15 +536,15 @@
 				var xj = polygon[j].x + offsetx;
 				var yj = polygon[j].y + offsety;
 				
-				if(_almostEqual(xi, point.x, tolerance) && _almostEqual(yi, point.y, tolerance)){
+				if(_almostEqual(xi, point.x) && _almostEqual(yi, point.y)){
 					return null; // no result
 				}
 				
-				if(_onSegment({x: xi, y: yi}, {x: xj, y: yj}, point, tolerance)){
+				if(_onSegment({x: xi, y: yi}, {x: xj, y: yj}, point)){
 					return null; // exactly on the segment
 				}
 				
-				if(_almostEqual(xi, xj, tolerance) && _almostEqual(yi, yj, tolerance)){ // ignore very small lines
+				if(_almostEqual(xi, xj) && _almostEqual(yi, yj)){ // ignore very small lines
 					continue;
 				}
 				
@@ -573,7 +554,6 @@
 			
 			return inside;
 		},
-		
 		
 		// returns the area of the polygon, assuming no self-intersections
 		// a negative area indicates counter-clockwise winding direction
@@ -1908,4 +1888,4 @@
 			return rotated;
 		}
 	};
-}(this));
+})(typeof window !== 'undefined' ? window : self);

@@ -15,10 +15,10 @@
 	var lastRoot = null;
 	root.SvgParser.load = function(dirpath, svgString, scale, scalingFactor){
 		if(arguments.length === 1 && typeof dirpath === 'string'){
-			lastRoot = load(null, dirpath, 72, null);
+			lastRoot = load(dirpath);
 			return lastRoot;
 		}
-		lastRoot = load(dirpath, svgString, scale, scalingFactor);
+		lastRoot = load(svgString || dirpath);
 		return lastRoot;
 	};
 
@@ -26,5 +26,9 @@
 		root.SvgParser.getStyle = function(){
 			return lastRoot ? lastRoot.querySelector('style') : null;
 		};
+	}
+
+	if(!root.SvgParser.polygonElements){
+		root.SvgParser.polygonElements = ['svg','circle','ellipse','path','polygon','polyline','rect'];
 	}
 })(this);
