@@ -706,7 +706,12 @@
 		while (p.inst.length > n) p.inst.pop();
 		while (p.inst.length < n) {
 			const q = p.inst.length + 1;
-			p.inst.push({ dx: p.xf.dx + snapv(18) * q, dy: p.xf.dy + snapv(18) * q, rot: p.xf.rot, s: p.xf.s, fx: p.xf.fx, fy: p.xf.fy });
+			// copies must never overlap: the engine's containment pass swallows an
+			// overlapping copy as a hole instead of nesting it separately
+			const bw = Math.max(5, (p.bounds ? p.bounds.width : 40) + 10);
+			const bh = Math.max(5, (p.bounds ? p.bounds.height : 40) + 10);
+			const cols = Math.max(1, Math.floor((activeSheet().w * unitFactor()) / bw));
+			p.inst.push({ dx: p.xf.dx + bw * (q % cols), dy: p.xf.dy + bh * Math.floor(q / cols), rot: p.xf.rot, s: p.xf.s, fx: p.xf.fx, fy: p.xf.fy });
 		}
 	}
 	function instXf(p, q) {
@@ -1385,7 +1390,7 @@
 				dx: txn - c0.x + (ncs * sfx * c0.x - nsn * sfy * c0.y),
 				dy: tyn - c0.y + (nsn * sfx * c0.x + ncs * sfy * c0.y),
 				rot: Math.round((((f.rot + (e.rotation || 0)) % 360) + 360) % 360 * 10) / 10,
-				s: f.s, fx: f.fx, fy: f.fy
+				s: f.s, fx: f.fx, fy: f.fy, a: 1
 			};
 			if (bestC.q === 0) { Object.assign(bestC.p.xf, nf); refreshPartGeom(bestC.p); }
 			else if (bestC.p.inst[bestC.q - 1]) { Object.assign(bestC.p.inst[bestC.q - 1], nf); }
@@ -1529,6 +1534,7 @@
 				xf.rot = Math.round(th * 180 / Math.PI * 10) / 10;
 				xf.dx = cx - o.p.c0.x;
 				xf.dy = cy - o.p.c0.y;
+				xf.a = 1;
 				if (o.q === 0) refreshPartGeom(o.p);
 				refreshPartDisplay(o.p);
 			}
@@ -1715,6 +1721,35 @@
 		const ser = new XMLSerializer();
 		let total = 0;
 		const seq = []; // cleaned-DOM mapping: one entry per top-level element after the bin
+		// Copies not yet arranged (no a flag) must not overlap anything in the job: the
+		// engine's containment pass swallows an overlapping copy as a hole instead of
+		// nesting it. Park un-arranged copies in a clean row below the content, writing
+		// positions back so arrange's placement signature matching stays exact.
+		let parkY = -Infinity;
+		for (const p of liveParts()) {
+			if (p.qty < 1 || !p.bounds) continue;
+			parkY = Math.max(parkY, p.bounds.y + p.bounds.height);
+			const na = Math.min(p.qty - 1, p.inst ? p.inst.length : 0);
+			for (let q = 0; q < na; q++) {
+				const f2 = p.inst[q];
+				if (f2 && f2.a && p.bounds) {
+					parkY = Math.max(parkY, p.bounds.y + (f2.dy - p.xf.dy) + p.bounds.height);
+				}
+			}
+		}
+		parkY += 10;
+		let parkX = 0;
+		for (const p of liveParts()) {
+			if (p.qty < 1) continue;
+			const bw = Math.max(5, (p.bounds ? p.bounds.width : 40) + 10);
+			for (let q = 1; q < p.qty; q++) {
+				const f2 = instXf(p, q);
+				if (!f2 || f2.a) continue;
+				f2.dx = p.xf.dx + (parkX - p.bounds.x);
+				f2.dy = p.xf.dy + (parkY - p.bounds.y);
+				parkX += bw;
+			}
+		}
 		for (const p of liveParts()) {
 			if (p.qty < 1) continue;
 			for (let q = 0; q < p.qty; q++) {
