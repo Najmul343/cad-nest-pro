@@ -458,6 +458,7 @@
 							nfpCache[key] = Nfp.value;
 						}
 				}
+				}
 				worker.nfpCache = nfpCache;
 				
 				// can't use .spawn because our data is an array
